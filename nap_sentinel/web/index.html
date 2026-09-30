@@ -91,6 +91,11 @@
   .tgst { font-size: 12px; margin-left: 4px; }
   .warnbox { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap;
     background: color-mix(in srgb, var(--warn) 18%, transparent); border: 1px solid var(--warn); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+  .warnbox.info { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); }
+  .warnbox.good { background: color-mix(in srgb, var(--ok) 16%, transparent); border-color: var(--ok); }
+  .warnbox.bad { background: color-mix(in srgb, var(--bad) 14%, transparent); border-color: var(--bad); }
+  .warnbox .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .warnbox .log { flex-basis: 100%; margin: 0; }
   select { padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); font: inherit; max-width: 180px; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line);
     padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity .3s; pointer-events: none; }
@@ -100,9 +105,19 @@
 <body>
 <main>
   <header>
-    <h1>🛡️ Sentinel <small>NotAutopilot</small></h1>
+    <h1>🛡️ Sentinel <small>NotAutopilot <span id="verTag"></span></small></h1>
     <button id="recordBtn" class="primary" title="Grabar un clip ahora">● Grabar ahora</button>
   </header>
+
+  <div id="updBox" class="warnbox info" hidden>
+    <span id="updText"></span>
+    <span class="btns">
+      <a id="updNotes" target="_blank" rel="noopener"><button>Novedades</button></a>
+      <button class="primary" id="updBtn">Actualizar</button>
+      <button class="primary" id="rebootBtn" hidden>Reiniciar ahora</button>
+    </span>
+    <details id="updLogBox" hidden style="flex-basis:100%"><summary>Ver registro</summary><pre id="updLog" class="log"></pre></details>
+  </div>
 
   <section class="card">
     <div id="clockWarn" class="warnbox" hidden>
@@ -160,6 +175,8 @@
         <select data-k="timezone" id="tzSel"></select></div>
       <div class="row"><label>Espacio máximo (GB)<small>Borra los eventos más antiguos no bloqueados</small></label>
         <input type="number" min="1" max="50" step="1" data-k="max_storage_gb"></div>
+      <div class="row"><label>Versión <b id="verNow"></b><small id="verCheck"></small></label>
+        <button id="updCheck">Buscar actualizaciones</button></div>
       <div class="row"><label>Contraseña web<small id="pwState"></small></label>
         <span><input type="password" id="pw" placeholder="nueva" autocomplete="new-password"> <button id="pwBtn">Guardar</button></span></div>
     </details>
@@ -469,8 +486,61 @@ $("#clockFix").onclick = async () => {
   } catch (e) { toast("No se pudo: " + e.message); }
 };
 
+let upd = {}, rebooting = 0, onroadNow = false;
+const ago = (t) => { const s = Date.now() / 1000 - t; return s < 90 ? "hace un momento" : s < 5400 ? `hace ${Math.round(s / 60)} min` : s < 129600 ? `hace ${Math.round(s / 3600)} h` : `hace ${Math.round(s / 86400)} días`; };
+function renderUpdate(u) {
+  if (!u) return;
+  upd = u;
+  $("#verTag").textContent = "v" + u.running_version;
+  $("#verNow").textContent = u.running_version;
+  $("#verCheck").textContent = u.check_error ? `No se pudo comprobar: ${u.check_error}` :
+    u.checked_at ? `Comprobado ${ago(u.checked_at)}${u.available ? ` · disponible ${u.latest}` : " · estás al día"}` : "Se comprueba en GitHub cada 6 h";
+  const box = $("#updBox"), txt = $("#updText");
+  let show = true, cls = "info", btn = false, reboot = false, log = false;
+  if (rebooting && Date.now() - rebooting < 240000) {
+    txt.innerHTML = "🔄 Reiniciando el comma… la página volverá sola en un minuto o dos.";
+  } else if (u.state === "running") {
+    txt.innerHTML = `⏳ Actualizando a <b>${u.target}</b>… no apagues el comma.`; log = true;
+  } else if (u.needs_reboot) {
+    cls = "good"; reboot = true;
+    txt.innerHTML = `✅ Actualizado a <b>${u.installed_version}</b>. Reinicia el comma para aplicarlo${onroadNow ? " (cuando aparques)" : ""}.`;
+  } else if (u.state === "failed") {
+    cls = "bad"; btn = true; log = true;
+    txt.innerHTML = `❌ La actualización falló: ${u.error.replace(/</g, "&lt;")}`;
+  } else if (u.available) {
+    btn = true;
+    txt.innerHTML = `🆕 Nueva versión <b>${u.latest}</b> disponible <span class="muted">(tienes ${u.installed_version})</span>`;
+  } else show = false;
+  box.hidden = !show; box.className = "warnbox " + cls;
+  $("#updBtn").hidden = !btn; $("#updBtn").textContent = u.state === "failed" ? "Reintentar" : "Actualizar";
+  $("#rebootBtn").hidden = !reboot; $("#rebootBtn").disabled = onroadNow;
+  $("#updNotes").hidden = !(btn && u.available); $("#updNotes").href = u.repo + "#historial-de-versiones";
+  $("#updLogBox").hidden = !(log && u.log && u.log.length);
+  if (u.log) $("#updLog").textContent = u.log.join("\n");
+}
+$("#updBtn").onclick = async () => {
+  if (!confirm(`¿Actualizar Sentinel a ${upd.latest}? Tus ajustes y grabaciones se conservan.`)) return;
+  $("#updBtn").disabled = true;
+  try { renderUpdate(await api("/api/update/run", {})); } catch (e) { toast("No se pudo: " + e.message); }
+  finally { $("#updBtn").disabled = false; }
+};
+$("#rebootBtn").onclick = async () => {
+  if (!confirm("¿Reiniciar el comma ahora? Tarda un minuto o dos; mientras tanto Sentinel no vigila.")) return;
+  try { await api("/api/reboot", {}); rebooting = Date.now(); renderUpdate(upd); } catch (e) { toast(e.message); }
+};
+$("#updCheck").onclick = async () => {
+  const b = $("#updCheck"); b.disabled = true; b.textContent = "Comprobando…";
+  try { const u = await api("/api/update/check", {}); renderUpdate(u); toast(u.check_error ? "No se pudo comprobar" : u.available ? `Disponible ${u.latest}` : "Ya tienes la última versión"); }
+  catch (e) { toast(e.message); } finally { b.disabled = false; b.textContent = "Buscar actualizaciones"; }
+};
+
 async function refreshStatus() {
-  try { const r = await api("/api/status"); statusAge = r.status_age_s; renderConfig(r.config); renderClock(r.server_time); renderStatus(r.status); }
+  try {
+    const r = await api("/api/status"); statusAge = r.status_age_s; onroadNow = !!(r.status && r.status.onroad);
+    renderConfig(r.config); renderClock(r.server_time); renderStatus(r.status);
+    if (rebooting && r.update && !r.update.needs_reboot) rebooting = 0;
+    renderUpdate(r.update);
+  }
   catch (err) { $("#stateText").textContent = "Sin conexión"; }
 }
 async function refreshEvents() { try { renderEvents(await api("/api/events")); } catch (e) {} }

@@ -11,6 +11,7 @@ Si alguien golpea, levanta o balancea el coche, sentinel graba las cámaras (fro
 - **Telegram**: aviso con el motivo y la fuerza, vídeo de la gran angular y comandos como `/grabar` o `/estado`.
 - **Destello de luces con la API de Tesla** al detectar un evento de noche, para que la grabación se vea mejor.
 - **Si eras tú**, no hay aviso: al arrancar el coche durante la grabación, el evento se descarta.
+- **Se actualiza desde el panel**: avisa cuando hay versión nueva en GitHub y la instala con un botón.
 - **Sobrevive a las actualizaciones de NAP.** Mientras conduces no cambia nada.
 
 <br clear="right">
@@ -46,9 +47,20 @@ curl -fsSL https://raw.githubusercontent.com/valerito/nap-sentinel/main/dist/nap
 - El instalador pregunta si quieres reiniciar. Hay que reiniciar para que arranque la versión nueva.
   - `--yes`: instala y reinicia sin preguntar.
   - `--no-reboot`: no reinicia.
-- Para **actualizar**, se usa el mismo comando. Se conservan tus ajustes, el bot de Telegram y las grabaciones.
+- Para **actualizar**, lo más fácil es el **panel web** (desde la 1.4.0): ver [Actualizar desde el panel](#actualizar-desde-el-panel). Por SSH se usa el mismo comando. Se conservan tus ajustes, el bot de Telegram y las grabaciones.
 - Se puede actualizar con sentinel en marcha.
 - La primera línea que imprime indica la versión (`NAP Sentinel 1.x.y`). Si sale una versión antigua, GitHub aún tiene la anterior en caché: espera un par de minutos y repite.
+
+### Actualizar desde el panel
+
+El panel comprueba en GitHub si hay una versión nueva al arrancar y cada 6 horas. También puedes comprobarlo a mano en *Ajustes → Avanzado → Buscar actualizaciones*, donde se ve la versión instalada.
+
+1. Si hay una versión nueva, aparece un aviso azul arriba del todo: **🆕 Nueva versión X disponible**, con los botones *Novedades* y **Actualizar**.
+2. **Actualizar** descarga el mismo instalador de la línea de `curl` y lo ejecuta en el comma (sin reiniciar). Tarda unos segundos; se conservan los ajustes, Telegram, Tesla y las grabaciones.
+3. Al terminar, el aviso se pone verde: **✅ Actualizado a X**, con el botón **Reiniciar ahora**. Hasta que reinicies sigue funcionando la versión anterior.
+4. **Reiniciar ahora** reinicia el comma igual que su botón de Ajustes. No se puede con el coche encendido. La página vuelve sola en uno o dos minutos.
+
+Si falla, el aviso se pone rojo con el motivo, un botón *Reintentar* y el registro (también en `/data/sentinel/update.log`). La versión anterior sigue instalada y funcionando.
 
 **Alternativa sin internet en el comma**: copia el archivo desde tu PC.
 
@@ -174,7 +186,8 @@ Al detectar un evento de noche, sentinel pide al coche un **destello de luces** 
   - Reproductor con pestañas por cámara: Frontal, Habitáculo, Gran angular, Gran angular (ligera) y Frontal HD.
   - Botones ⏩ Ir al golpe, ⬇ Descargar, ✈️ Telegram, 🔒 Bloquear (nunca se borra automáticamente) y Borrar.
   - Si alguna cámara no se pudo convertir, el evento muestra el motivo.
-- **Ajustes** y **Telegram**.
+- **Ajustes**, **Luces (Tesla)** y **Telegram**.
+- **Actualizaciones**: aviso arriba cuando hay versión nueva, con botón para actualizar y luego para reiniciar. La versión instalada se ve junto al título.
 
 Los vídeos HD y de habitáculo son HEVC: se ven en Safari/iOS y en Chrome/Edge con aceleración por hardware. La frontal y la gran angular ligeras (H.264) se ven en cualquier navegador.
 
@@ -238,7 +251,7 @@ La **zona horaria** se elige en *Avanzado → Zona horaria* (por defecto `Europe
 
 | Dónde | Qué |
 |---|---|
-| `/data/sentinel/` | El programa, tu `config.json` y el registro de Telegram. Está fuera de openpilot, así que no le afectan las actualizaciones de NAP. |
+| `/data/sentinel/` | El programa, tu `config.json`, el registro de Telegram y el de la última actualización (`update.log`). Está fuera de openpilot, así que no le afectan las actualizaciones de NAP. |
 | `/data/openpilot/system/manager/process_config.py` | 12 líneas al final (el "gancho"), dentro de `try/except`: si sentinel falla o no está, openpilot arranca igual que siempre. |
 | `/data/continue.sh` | 1 línea que vuelve a poner el gancho en cada arranque. |
 | Param `DisablePowerDown` | Activado mientras sentinel está activado. Se restaura al desactivarlo o al desinstalar. |
@@ -259,6 +272,7 @@ ls -la /data/media/0/sentinel/<evento>/               # ficheros de un evento
 cat /data/media/0/sentinel/<evento>/event.json        # detalles (fotogramas, errores de exportación)
 cat /data/media/0/sentinel/<evento>/telegram.json     # estado del envío a Telegram
 tail -50 /data/sentinel/telegram.log                  # registro de Telegram
+cat /data/sentinel/update.log                         # última actualización desde el panel
 ```
 
 | Síntoma | Qué mirar |
@@ -271,6 +285,8 @@ tail -50 /data/sentinel/telegram.log                  # registro de Telegram
 | Consumo "0,0 W" o "–" | Actualiza a 1.1.6+. Pasa el ratón por el valor para ver de dónde sale la medida. |
 | Horas o nombres de eventos con fecha rara | La hora del comma está mal: usa el botón del aviso amarillo de la web (ver [Hora y zona horaria](#hora-y-zona-horaria)). |
 | El instalador muestra una versión vieja | Caché de GitHub: espera un par de minutos y repite. |
+| No aparece el aviso de versión nueva | Necesita internet en el comma. Pulsa *Buscar actualizaciones* en *Ajustes → Avanzado*: si no puede, dice por qué. Las versiones anteriores a la 1.4.0 hay que actualizarlas una vez por SSH. |
+| La actualización falla | El aviso rojo muestra el motivo y el registro (`/data/sentinel/update.log`). Sigue funcionando la versión anterior; puedes reintentar o usar el comando `curl` por SSH. |
 
 ## Limitaciones y avisos
 
@@ -283,6 +299,7 @@ tail -50 /data/sentinel/telegram.log                  # registro de Telegram
 
 | Versión | Cambios |
 |---|---|
+| 1.4.0 | Actualizaciones desde el panel web: aviso cuando hay versión nueva en GitHub, botón **Actualizar** y, al terminar, **Reiniciar ahora**. Versión visible en el panel. |
 | 1.3.1 | Con el aviso retrasado, el vídeo ya no puede llegar antes que el aviso: espera a que se envíe el aviso y va justo después, como respuesta. |
 | 1.3.0 | «Iniciar sesión con Tesla» desde el panel (inicio de sesión oficial de Tesla con PKCE, como TeslaMate), sin tener que generar tokens a mano. Acceso directo para MyTeslaMate. |
 | 1.2.0 | Destello de luces con la API de Tesla (Owner API o Fleet API) en los eventos nocturnos, conectado desde el panel web; cálculo de día/noche con el último GPS del comma. |
@@ -316,3 +333,4 @@ Archivos:
 - `config.py` y `storage.py`: ajustes, estado compartido y eventos.
 - `timesync.py`: corrección de la hora del comma y zona horaria.
 - `tesla.py`: API de Tesla (Owner/Fleet, token rotativo, despertar, destello) y cálculo de día/noche.
+- `updater.py`: comprobación de versión en GitHub, actualización con el instalador y reinicio.

@@ -18,7 +18,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from nap_sentinel import config, storage, telegram, tesla
+from nap_sentinel import config, storage, telegram, tesla, updater
 
 PORT = int(os.environ.get("SENTINEL_WEB_PORT", "8090"))
 WEB_DIR = Path(__file__).parent / "web"
@@ -54,7 +54,8 @@ def make_app() -> web.Application:
     st = config.read_json(config.STATUS_FILE, default={}) or {}
     now = time.time()  # noqa: TID251
     return web.json_response({"status": st, "config": config.public(config.load()), "server_time": now,
-                              "status_age_s": round(now - st.get("t", 0), 1) if st.get("t") else None})
+                              "status_age_s": round(now - st.get("t", 0), 1) if st.get("t") else None,
+                              "update": updater.status()})
 
   async def get_config(request):
     return web.json_response(config.public(config.load()))
@@ -269,6 +270,43 @@ def make_app() -> web.Application:
     config.TRIGGER_FILE.touch()
     return web.json_response({"ok": True})
 
+  # ── updates from GitHub ─────────────────────────────────
+  async def update_status(request):
+    return web.json_response(updater.status())
+
+  async def update_check(request):
+    await asyncio.get_running_loop().run_in_executor(None, updater.check)
+    return web.json_response(updater.status())
+
+  async def update_run(request):
+    ok, msg = updater.start(force=bool((await _body(request)).get("force")))
+    if not ok:
+      return web.json_response({"error": msg, **updater.status()}, status=409)
+    return web.json_response(updater.status())
+
+  def _driving() -> bool:
+    st = config.read_json(config.STATUS_FILE, default={}) or {}
+    return bool(st.get("onroad")) and time.time() - float(st.get("t", 0)) < 30  # noqa: TID251
+
+  async def reboot(request):
+    if _driving():
+      return web.json_response({"error": "El coche está encendido; reinicia cuando aparques."}, status=409)
+    if updater.status()["state"] == "running":
+      return web.json_response({"error": "Espera a que termine la actualización."}, status=409)
+    how = await asyncio.get_running_loop().run_in_executor(None, updater.reboot)
+    return web.json_response({"ok": True, "via": how})
+
+  async def update_checker(app):
+    async def loop():
+      await asyncio.sleep(20)   # let the network come up after boot
+      while True:
+        if updater.check_due():
+          await asyncio.get_running_loop().run_in_executor(None, updater.check)
+        await asyncio.sleep(600)
+    task = asyncio.create_task(loop())
+    yield
+    task.cancel()
+
   async def media(request):
     eid, name = request.match_info["eid"], request.match_info["name"]
     if not storage.valid_event_id(eid) or name not in MEDIA_FILES:
@@ -305,8 +343,14 @@ def make_app() -> web.Application:
     web.post("/api/tesla/disconnect", tesla_disconnect),
     web.get("/api/night", night),
     web.post("/api/events/{eid}/telegram", tg_send_event),
+    web.get("/api/update", update_status),
+    web.post("/api/update/check", update_check),
+    web.post("/api/update/run", update_run),
+    web.post("/api/reboot", reboot),
     web.get("/media/{eid}/{name}", media),
   ])
+  if os.environ.get("SENTINEL_UPDATE_CHECK", "1") != "0":
+    app.cleanup_ctx.append(update_checker)
   return app
 
 
