@@ -85,6 +85,8 @@
   code { background: var(--panel2); padding: 1px 5px; border-radius: 5px; font-size: 13px; }
   a { color: var(--accent); }
   .inline { display: flex; gap: 8px; } .inline input { flex: 1; width: auto; min-width: 0; }
+  .log { white-space: pre-wrap; font-size: 11px; max-height: 220px; overflow: auto; background: var(--panel2); padding: 8px; border-radius: 8px; }
+  .tgst { font-size: 12px; margin-left: 4px; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line);
     padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity .3s; pointer-events: none; }
   .toast.show { opacity: 1; }
@@ -183,6 +185,8 @@
       <div class="row"><label>Vídeo solo por Wi-Fi<small>Guarda los datos móviles; se envía al conectar (hasta 24 h)</small></label>
         <label class="switch"><input type="checkbox" data-k="telegram_video_wifi_only"><span></span></label></div>
       <p class="muted" style="font-size:12px;margin-bottom:0">Comandos en el chat: /estado · /grabar · /ultimo · /activar · /desactivar</p>
+      <details id="tgLogBox" style="margin-top:8px"><summary>Registro de envíos</summary>
+        <pre id="tgLog" class="log">–</pre></details>
     </div>
   </section>
 
@@ -269,6 +273,14 @@ function renderStatus(s) {
   $("#lastTrig").textContent = lt ? `Último disparo: ${REASON[lt.reason] || lt.reason} · ${fmtDate(lt.wall_time)}` : "";
 }
 
+function tgBadge(e) {
+  const t = e.telegram; if (!t || !cfg.telegram_linked) return "";
+  if (t.video_sent) return ' <span class="tgst" title="Vídeo enviado a Telegram">✈️</span>';
+  if (t.video_failed || t.video_error) return ` <span class="tgst" style="color:var(--bad)" title="${(t.video_error || "").replace(/"/g, "'")}">✈️⚠️</span>`;
+  if (t.video_waiting_wifi) return ' <span class="tgst" title="Esperando Wi-Fi">✈️⏳</span>';
+  return "";
+}
+
 function evStatus(e) {
   return { recording: "grabando…", pending_export: "procesando…", exporting: "procesando…", failed: "error", ready: "" }[e.status] ?? e.status;
 }
@@ -293,7 +305,7 @@ function renderEvents(list) {
           <b>${fmtDate(e.wall_time)} ${e.locked ? "🔒" : ""}</b>
           <span>${reasons.map((r) => `<span class="tag ${r}">${REASON[r] || r}</span>`).join("")}
             ${e.peak ? `pico ${e.peak.toFixed(2)} g · ` : ""}${e.prerecord_s ? `${Math.round(e.prerecord_s)} s previos · ` : ""}${e.duration_s ? Math.round(e.duration_s) + " s · " : ""}${fmtBytes(e.size_bytes || 0)}
-            <em>${evStatus(e)}</em></span>
+            <em>${evStatus(e)}</em>${tgBadge(e)}</span>
         </div>
       </div>
       <div class="ev-body"></div>`;
@@ -336,10 +348,18 @@ function actions(e, f) {
   return `<div class="actions">
     ${f ? `<a data-dl href="/media/${e.id}/${f}?download=1"><button>⬇ Descargar</button></a>` : ""}
     <button data-lock>${e.locked ? "Desbloquear" : "🔒 Bloquear"}</button>
+    ${cfg.telegram_linked && f ? `<button data-tg>✈️ Telegram</button>` : ""}
     <button data-del class="danger">Borrar</button></div>`;
 }
 
 function bindActions(body, e) {
+  const tgb = body.querySelector("[data-tg]");
+  if (tgb) tgb.onclick = async () => {
+    tgb.disabled = true; tgb.textContent = "Enviando…";
+    try { await api(`/api/events/${e.id}/telegram`, {}); toast("Vídeo enviado a Telegram"); }
+    catch (err) { toast("No se pudo enviar: " + err.message); }
+    finally { tgb.disabled = false; tgb.textContent = "✈️ Telegram"; lastEventsSig = ""; refreshEvents(); }
+  };
   body.querySelector("[data-lock]").onclick = async () => { await api(`/api/events/${e.id}/lock`, { locked: !e.locked }); refreshEvents(); };
   body.querySelector("[data-del]").onclick = async () => {
     if (!confirm("¿Borrar este evento?")) return;
@@ -379,6 +399,10 @@ $("#tgLinkBtn").onclick = async () => {
 };
 $("#tgForget").onclick = async () => { if (confirm("¿Olvidar este bot?")) renderConfig(await api("/api/telegram/unlink", { forget_bot: true })); };
 $("#tgUnlink").onclick = async () => { if (confirm("¿Dejar de enviar avisos a este chat?")) renderConfig(await api("/api/telegram/unlink", {})); };
+$("#tgLogBox").addEventListener("toggle", async (ev) => {
+  if (!ev.target.open) return;
+  try { const r = await api("/api/telegram/log"); $("#tgLog").textContent = r.lines.length ? r.lines.join("\n") : "Sin envíos todavía."; } catch (e) {}
+});
 $("#tgTest").onclick = async () => { try { await api("/api/telegram/test", {}); toast("Mensaje de prueba enviado"); } catch (e) { toast("Error: " + e.message); } };
 $("#recordBtn").onclick = async () => {
   try { await api("/api/record", {}); toast("Grabando clip…"); } catch (e) { toast("No se puede grabar: " + e.message); }

@@ -69,7 +69,12 @@ def make_app() -> web.Application:
       return web.json_response({"error": str(e)}, status=400)
 
   async def events(request):
-    return web.json_response(storage.list_events())
+    evs = storage.list_events()
+    for ev in evs:
+      st = telegram.load_tg_state(ev["id"])
+      if st:
+        ev["telegram"] = {k: st.get(k) for k in ("alert_sent", "video_sent", "video_error", "video_failed", "video_waiting_wifi")}
+    return web.json_response(evs)
 
   async def delete_event(request):
     ok = storage.delete_event(request.match_info["eid"])
@@ -142,6 +147,21 @@ def make_app() -> web.Application:
       return web.json_response({"error": str(e)}, status=502)
     return web.json_response({"ok": True})
 
+  async def tg_send_event(request):
+    eid = request.match_info["eid"]
+    cfg = config.load()
+    if not config.telegram_ready(cfg):
+      return web.json_response({"error": "Telegram no está vinculado."}, status=409)
+    if storage.load_event(eid) is None:
+      return web.json_response({"error": "no existe"}, status=404)
+    svc = telegram.TelegramService()
+    outcome = await asyncio.get_running_loop().run_in_executor(None, lambda: svc._send_video(cfg, eid, force=True))
+    ok = outcome == "enviado"
+    return web.json_response({"ok": ok, "outcome": outcome, **({} if ok else {"error": outcome})}, status=200 if ok else 502)
+
+  async def tg_log(request):
+    return web.json_response({"lines": telegram.read_log(80)})
+
   async def record_now(request):
     if not config.load()["enabled"]:
       return web.json_response({"ok": False, "error": "sentinel desactivado"}, status=409)
@@ -174,6 +194,8 @@ def make_app() -> web.Application:
     web.post("/api/telegram/link", tg_link),
     web.post("/api/telegram/unlink", tg_unlink),
     web.post("/api/telegram/test", tg_test),
+    web.get("/api/telegram/log", tg_log),
+    web.post("/api/events/{eid}/telegram", tg_send_event),
     web.get("/media/{eid}/{name}", media),
   ])
   return app

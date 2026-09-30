@@ -80,6 +80,58 @@ def fmt_time(wall: float, tz: str = "Europe/Madrid") -> str:
     return time.strftime("%d/%m %H:%M:%S", time.localtime(wall))
 
 
+def video_meta(path: Path) -> dict:
+  """width/height/duration so Telegram shows the clip correctly."""
+  try:
+    import av
+    with av.open(str(path)) as c:
+      v = c.streams.video[0]
+      dur = float(v.duration * v.time_base) if v.duration else (c.duration or 0) / 1e6
+      return {"width": v.codec_context.width, "height": v.codec_context.height, "duration": max(1, round(dur))}
+  except Exception:
+    return {}
+
+
+def small_thumbnail(jpg: Path) -> bytes | None:
+  """Telegram wants JPEG, max 320x320 and < 200 kB, or it rejects/ignores it."""
+  try:
+    import io
+    from PIL import Image
+    im = Image.open(jpg).convert("RGB")
+    im.thumbnail((320, 320))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=70)
+    return buf.getvalue() if buf.tell() < 200_000 else None
+  except Exception:
+    return None
+
+
+LOG_MAX_BYTES = 64_000
+
+
+def log_path() -> Path:
+  return config.INSTALL_DIR / "telegram.log"
+
+
+def append_log(line: str) -> None:
+  try:
+    p = log_path()
+    if p.exists() and p.stat().st_size > LOG_MAX_BYTES:
+      tail = p.read_text(errors="replace")[-LOG_MAX_BYTES // 2:]
+      p.write_text(tail[tail.find("\n") + 1:])
+    with open(p, "a") as f:
+      f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line.replace("\n", " ") + "\n")
+  except Exception:
+    pass
+
+
+def read_log(lines: int = 60) -> list[str]:
+  try:
+    return log_path().read_text(errors="replace").splitlines()[-lines:]
+  except OSError:
+    return []
+
+
 def _tg_state_path(eid: str) -> Path:
   return storage.sentinel_root() / eid / "telegram.json"
 
@@ -136,7 +188,7 @@ def status_text(status: dict, cfg: dict) -> str:
 class TelegramService:
   """Two daemon threads: a sender (queue) and a long-poll receiver."""
   def __init__(self, log=print, clock=time.monotonic):
-    self.log = log
+    self._ext_log = log
     self.clock = clock
     self.q: queue.Queue = queue.Queue()
     self.offset = 0
@@ -144,6 +196,13 @@ class TelegramService:
     self._last_scan = 0.0
     self._retry_at: dict[str, float] = {}
     self._threads: list[threading.Thread] = []
+
+  def log(self, msg: str) -> None:
+    append_log(msg)
+    try:
+      self._ext_log(f"telegram: {msg}")
+    except Exception:
+      pass
 
   # ── public API (called from sentineld) ────────────────────
   def start(self) -> None:
@@ -176,7 +235,7 @@ class TelegramService:
           self.handle(kind, arg)
         self._scan_pending()
       except Exception as e:
-        self.log(f"telegram sender: {e}")
+        self.log(f"sender: {type(e).__name__}: {e}")
 
   def handle(self, kind: str, arg) -> None:
     cfg = config.load()
@@ -212,67 +271,113 @@ class TelegramService:
       st["alert_sent"] = time.time()  # noqa: TID251
     except Exception as e:
       st["alert_error"] = str(e)
-      self.log(f"telegram alert failed: {e}")
+      self.log(f"aviso {eid} falló: {e}")
     save_tg_state(eid, st)
 
   def _pick_video(self, eid: str) -> Path | None:
     d = storage.sentinel_root() / eid
     for name in ("wide_lq.mp4", "road.mp4"):
-      if (d / name).is_file():
-        return d / name
+      f = d / name
+      if f.is_file() and f.stat().st_size > 20_000:   # skip empty/broken exports
+        return f
     return None
 
-  def _send_video(self, cfg: dict, eid: str, force: bool = False) -> None:
+  def _send_video(self, cfg: dict, eid: str, force: bool = False) -> str:
+    """Sends the event clip. Returns a short human-readable outcome."""
     if not cfg["telegram_video"] and not force:
-      return
+      return "envío de vídeo desactivado"
     ev = storage.load_event(eid)
-    if ev is None or ev.get("status") != "ready":
-      return
+    if ev is None:
+      return "el evento ya no existe"
+    if ev.get("status") != "ready":
+      return f"el vídeo aún no está listo ({ev.get('status')})"
     st = load_tg_state(eid)
-    if st.get("video_sent") and not force:
-      return
+    if (st.get("video_sent") or st.get("video_failed")) and not force:
+      return "ya enviado"
     if cfg["telegram_video_wifi_only"] and not force:
       net = str((config.read_json(config.STATUS_FILE, default={}) or {}).get("network", ""))
       if "wifi" not in net.lower():
         st["video_waiting_wifi"] = True
         save_tg_state(eid, st)
-        return
+        return "esperando Wi-Fi"
     video = self._pick_video(eid)
     if video is None:
-      return
-    size = video.stat().st_size
+      st["video_failed"], st["video_error"] = True, "no hay vídeo exportado para este evento"
+      save_tg_state(eid, st)
+      return st["video_error"]
+
     token, chat = cfg["telegram_token"], cfg["telegram_chat_id"]
     reply = {"reply_to_message_id": st["alert_msg_id"], "allow_sending_without_reply": "true"} if st.get("alert_msg_id") else {}
     cam = "gran angular" if video.name == "wide_lq.mp4" else "frontal"
     pre = f" · {round(ev['prerecord_s'])} s antes del golpe" if ev.get("prerecord_s") else ""
     caption = f"🎥 {cam} · {fmt_time(ev['wall_time'])} · {round(ev.get('duration_s') or 0)} s{pre}"
+    size = video.stat().st_size
     try:
       if size > MAX_VIDEO_BYTES:
         note = f"{caption}\nEl vídeo ocupa {size / 1e6:.0f} MB (Telegram admite 50 MB). Míralo en el panel web."
         api(token, "sendMessage", {"chat_id": chat, **reply, "text": note})
       else:
-        with open(video, "rb") as f:
-          files = {"video": (f"sentinel-{eid}.mp4", f, "video/mp4")}
-          thumb = video.parent / "thumb.jpg"
-          tf = open(thumb, "rb") if thumb.is_file() else None
-          try:
-            if tf is not None:
-              files["thumbnail"] = ("thumb.jpg", tf, "image/jpeg")
-            api(token, "sendVideo", {"chat_id": chat, "caption": caption, "supports_streaming": "true", **reply},
-                files=files, timeout=300)
-          finally:
-            if tf is not None:
-              tf.close()
+        self._upload_video(token, chat, video, caption, reply)
       st["video_sent"] = time.time()  # noqa: TID251
-      st.pop("video_waiting_wifi", None)
-      st.pop("video_error", None)
-    except Exception as e:
+      for k in ("video_waiting_wifi", "video_error", "video_failed"):
+        st.pop(k, None)
+      outcome = "enviado"
+      self.log(f"vídeo {eid} enviado ({video.name}, {size / 1e6:.1f} MB)")
+    except TelegramError as e:
       st["video_error"] = str(e)
       st["video_tries"] = st.get("video_tries", 0) + 1
-      delay = getattr(e, "retry_after", None) or min(600, 30 * 2 ** min(st["video_tries"], 5))
-      self._retry_at[eid] = self.clock() + delay
-      self.log(f"telegram video failed ({eid}): {e}")
+      if e.code is not None and e.code != 429 and 400 <= e.code < 500:
+        # Telegram rejected it: retrying won't help, tell the user why
+        st["video_failed"] = True
+        outcome = f"Telegram lo rechazó: {e}"
+        self.log(f"vídeo {eid} rechazado: {e} (code {e.code})")
+        try:
+          api(token, "sendMessage", {"chat_id": chat, **reply,
+                                     "text": f"⚠️ No pude enviar el vídeo ({e}). Está guardado en el panel web."})
+        except Exception:
+          pass
+      else:
+        delay = e.retry_after or min(600, 30 * 2 ** min(st["video_tries"], 5))
+        self._retry_at[eid] = self.clock() + delay
+        outcome = f"sin conexión, reintento en {delay} s ({e})"
+        self.log(f"vídeo {eid}: {outcome}")
+    except Exception as e:
+      st["video_error"] = f"{type(e).__name__}: {e}"
+      st["video_tries"] = st.get("video_tries", 0) + 1
+      self._retry_at[eid] = self.clock() + 120
+      outcome = f"error: {st['video_error']}"
+      self.log(f"vídeo {eid}: {outcome}")
     save_tg_state(eid, st)
+    return outcome
+
+  def _upload_video(self, token: str, chat: str, video: Path, caption: str, reply: dict) -> None:
+    """sendVideo with metadata and a valid thumbnail; if Telegram rejects the
+    request (400), retry plainer, and as a last resort send it as a file."""
+    meta = video_meta(video)
+    thumb = small_thumbnail(video.parent / "thumb.jpg")
+    base = {"chat_id": chat, "caption": caption}
+    attempts = [
+      ("sendVideo", {**base, **reply, **meta, "supports_streaming": "true"}, thumb),
+      ("sendVideo", {**base, "supports_streaming": "true"}, None),
+      ("sendDocument", {**base}, None),
+    ]
+    last: TelegramError | None = None
+    for method, data, th in attempts:
+      field = "video" if method == "sendVideo" else "document"
+      with open(video, "rb") as f:
+        files = {field: (video.name, f, "video/mp4")}
+        if th:
+          files["thumbnail"] = ("thumb.jpg", th, "image/jpeg")
+        try:
+          api(token, method, data, files=files, timeout=300)
+          return
+        except TelegramError as e:
+          if e.code != 400:
+            raise
+          last = e
+          self.log(f"{method} rechazado ({e}); probando de otra forma")
+    assert last is not None
+    raise last
 
   def _scan_pending(self) -> None:
     """Retry videos that could not be sent (no connection, wifi-only, crash)."""
@@ -317,7 +422,7 @@ class TelegramService:
             pass
         time.sleep(e.retry_after or 10)
       except Exception as e:
-        self.log(f"telegram poll: {e}")
+        self.log(f"poll: {e}")
         time.sleep(15)
 
   def handle_update(self, cfg: dict, u: dict) -> None:
@@ -374,7 +479,10 @@ class TelegramService:
       if ev is None:
         reply = "No hay vídeos todavía."
       else:
-        self._send_video(config.load(), ev["id"], force=True)
+        api(token, "sendMessage", {"chat_id": chat_id, "text": f"📤 Enviando el vídeo del {fmt_time(ev['wall_time'])}…"})
+        outcome = self._send_video(config.load(), ev["id"], force=True)
+        if outcome != "enviado":
+          reply = f"⚠️ No se pudo enviar: {html.escape(outcome)}"
     elif cmd in ("/start", "/help", "/ayuda"):
       reply = "Comandos: /estado /grabar /ultimo /activar /desactivar"
     if reply:

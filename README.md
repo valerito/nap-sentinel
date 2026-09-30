@@ -52,6 +52,11 @@ A partir de ahí:
 - Si arrancas el coche durante la grabación, llega un mensaje de "era el dueño, descartado".
 - **Comandos** desde tu chat: `/estado`, `/grabar`, `/ultimo` (reenvía el último vídeo), `/activar`, `/desactivar`. El bot ignora cualquier otro chat.
 
+Si un vídeo no llega:
+- El motivo aparece en el chat y en el panel: icono ✈️⚠️ en el evento y *Telegram → Registro de envíos*.
+- Desde el evento puedes reenviarlo con el botón **✈️ Telegram**.
+- Si Telegram rechaza el vídeo, sentinel lo reintenta sin miniatura y, si sigue sin aceptarlo, lo manda como archivo.
+
 El token se guarda solo en el comma (`/data/sentinel/config.json`). No aparece en la web ni en los logs.
 
 ## Qué toca en el comma
