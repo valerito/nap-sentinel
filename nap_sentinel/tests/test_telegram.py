@@ -231,3 +231,29 @@ def test_thumbnail_is_resized_for_telegram(tmp_path):
   import io
   im = Image.open(io.BytesIO(b))
   assert max(im.size) <= 320 and len(b) < 200_000
+
+
+def test_thumbnail_comes_from_the_sent_clip(tmp_path):
+  av = pytest.importorskip("av")
+  import io
+  from fractions import Fraction
+  import numpy as np
+  from PIL import Image
+  # a green "wide" clip; the web thumb.jpg (front camera) is red
+  out = av.open(str(tmp_path / "wide_lq.mp4"), "w")
+  st = out.add_stream("libx264", rate=20)
+  st.width, st.height, st.pix_fmt = 640, 400, "yuv420p"
+  st.codec_context.time_base = Fraction(1, 20)
+  for i in range(40):
+    fr = av.VideoFrame.from_ndarray(np.full((400, 640, 3), (10, 200, 10), np.uint8), format="rgb24")
+    fr.pts = i
+    for p in st.encode(fr):
+      out.mux(p)
+  for p in st.encode(None):
+    out.mux(p)
+  out.close()
+  Image.new("RGB", (526, 330), (220, 10, 10)).save(tmp_path / "thumb.jpg")
+  b = telegram.video_thumbnail(tmp_path / "wide_lq.mp4", at_s=1.0)
+  im = Image.open(io.BytesIO(b)).convert("RGB")
+  r, g, _ = im.getpixel((im.width // 2, im.height // 2))
+  assert g > 150 and r < 80 and max(im.size) <= 320

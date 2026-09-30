@@ -106,6 +106,26 @@ def small_thumbnail(jpg: Path) -> bytes | None:
     return None
 
 
+def video_thumbnail(video: Path, at_s: float = 0.0) -> bytes | None:
+  """Thumbnail taken from the clip actually being sent (so a wide-camera clip
+  doesn't show a front-camera preview), resized to Telegram's limits."""
+  try:
+    import io
+    import av
+    with av.open(str(video)) as c:
+      for frame in c.decode(c.streams.video[0]):
+        if frame.time is not None and frame.time + 1e-3 < at_s:
+          continue
+        im = frame.to_image()
+        im.thumbnail((320, 320))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=70)
+        return buf.getvalue() if buf.tell() < 200_000 else None
+  except Exception:
+    return None
+  return None
+
+
 LOG_MAX_BYTES = 64_000
 
 
@@ -311,7 +331,7 @@ class TelegramService:
 
     token, chat = cfg["telegram_token"], cfg["telegram_chat_id"]
     reply = {"reply_to_message_id": st["alert_msg_id"], "allow_sending_without_reply": "true"} if st.get("alert_msg_id") else {}
-    cam = "gran angular" if video.name == "wide_lq.mp4" else "frontal"
+    cam = "gran angular" if video.name == "wide_lq.mp4" else "frontal (no hay clip de la gran angular)"
     pre = f" · {round(ev['prerecord_s'])} s antes del golpe" if ev.get("prerecord_s") else ""
     caption = f"🎥 {cam} · {fmt_time(ev['wall_time'])} · {round(ev.get('duration_s') or 0)} s{pre}"
     size = video.stat().st_size
@@ -320,7 +340,7 @@ class TelegramService:
         note = f"{caption}\nEl vídeo ocupa {size / 1e6:.0f} MB (Telegram admite 50 MB). Míralo en el panel web."
         api(token, "sendMessage", {"chat_id": chat, **reply, "text": note})
       else:
-        self._upload_video(token, chat, video, caption, reply)
+        self._upload_video(token, chat, video, caption, reply, at_s=ev.get("trigger_at_s") or 0.0)
       st["video_sent"] = time.time()  # noqa: TID251
       for k in ("video_waiting_wifi", "video_error", "video_failed"):
         st.pop(k, None)
@@ -353,11 +373,11 @@ class TelegramService:
     save_tg_state(eid, st)
     return outcome
 
-  def _upload_video(self, token: str, chat: str, video: Path, caption: str, reply: dict) -> None:
+  def _upload_video(self, token: str, chat: str, video: Path, caption: str, reply: dict, at_s: float = 0.0) -> None:
     """sendVideo with metadata and a valid thumbnail; if Telegram rejects the
     request (400), retry plainer, and as a last resort send it as a file."""
     meta = video_meta(video)
-    thumb = small_thumbnail(video.parent / "thumb.jpg")
+    thumb = video_thumbnail(video, at_s)
     base = {"chat_id": chat, "caption": caption}
     attempts = [
       ("sendVideo", {**base, **reply, **meta, "supports_streaming": "true"}, thumb),
