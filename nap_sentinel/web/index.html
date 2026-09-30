@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>Sentinel · NotAutopilot</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --panel2: #1d242e; --line: #2a3340;
+    --text: #e6edf3; --muted: #8b98a8; --accent: #4f9cf9;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --rec: #ff4d4d;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f5f7fa; --panel: #ffffff; --panel2: #eef1f5; --line: #d9dee5;
+            --text: #1b2430; --muted: #5d6b7c; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px 16px 48px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: .2px; }
+  h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+  h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .state { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .badge { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px;
+    font-weight: 700; font-size: 15px; background: var(--panel2); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .s-armed .dot { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 25%, transparent); }
+  .s-arming .dot { background: var(--warn); }
+  .s-recording .dot { background: var(--rec); animation: pulse 1s infinite; }
+  .s-onroad .dot { background: var(--accent); }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 14px; }
+  .stat { background: var(--panel2); border-radius: 10px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  .meter { margin-top: 14px; }
+  .meter .bar { position: relative; height: 12px; background: var(--panel2); border-radius: 6px; overflow: hidden; }
+  .meter .fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--accent); transition: width .3s; }
+  .meter .thr { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--bad); }
+  .meter .lbl { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; }
+  .row > label:first-child { flex: 1; }
+  .row small { display: block; color: var(--muted); font-size: 12px; }
+  input[type=range] { width: 160px; accent-color: var(--accent); }
+  input[type=number], input[type=password] { width: 110px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--text); font: inherit; }
+  .switch { position: relative; width: 48px; height: 28px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: .2s; cursor: pointer; }
+  .switch span::before { content: ""; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+  .switch input:checked + span { background: var(--ok); }
+  .switch input:checked + span::before { transform: translateX(20px); }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel2); color: var(--text);
+    padding: 8px 14px; border-radius: 10px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.danger { color: var(--bad); }
+  button:disabled { opacity: .5; cursor: default; }
+  details summary { cursor: pointer; color: var(--muted); list-style: none; }
+  details summary::before { content: "▸ "; }
+  details[open] summary::before { content: "▾ "; }
+  .events { display: grid; gap: 12px; }
+  .ev { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .ev-head { display: flex; gap: 12px; padding: 12px; cursor: pointer; align-items: center; }
+  .ev-thumb { width: 112px; height: 70px; border-radius: 8px; background: var(--panel2) center/cover no-repeat; flex: none; }
+  .ev-info { flex: 1; min-width: 0; }
+  .ev-info b { display: block; }
+  .ev-info span { color: var(--muted); font-size: 13px; }
+  .tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--panel2); margin-right: 4px; }
+  .tag.impact { color: var(--bad); } .tag.tilt { color: var(--warn); } .tag.rotate { color: var(--warn); } .tag.manual { color: var(--accent); }
+  .ev-body { padding: 0 12px 12px; display: none; }
+  .ev.open .ev-body { display: block; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  video { width: 100%; border-radius: 10px; background: #000; max-height: 60vh; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .muted { color: var(--muted); }
+  .empty { text-align: center; color: var(--muted); padding: 32px 12px; }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line);
+    padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity .3s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🛡️ Sentinel <small>NotAutopilot</small></h1>
+    <button id="recordBtn" class="primary" title="Grabar un clip ahora">● Grabar ahora</button>
+  </header>
+
+  <section class="card">
+    <div class="state">
+      <div id="badge" class="badge"><span class="dot"></span><span id="stateText">Cargando…</span></div>
+      <span id="stateHint" class="muted"></span>
+    </div>
+    <div class="grid">
+      <div class="stat"><b id="volt">–</b><span>Batería 12 V</span></div>
+      <div class="stat"><b id="power">–</b><span>Consumo comma</span></div>
+      <div class="stat"><b id="temp">–</b><span>Temperatura</span></div>
+      <div class="stat"><b id="space">–</b><span>Espacio libre</span></div>
+    </div>
+    <div class="meter">
+      <div class="bar"><div id="vibFill" class="fill"></div><div id="vibThr" class="thr"></div></div>
+      <div class="lbl"><span>Vibración en directo: <b id="vib">–</b></span><span>Umbral: <b id="thr">–</b></span></div>
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:6px" id="lastTrig"></div>
+  </section>
+
+  <section class="card">
+    <h2>Ajustes</h2>
+    <div class="row"><label>Sentinel activado<small>Vigila el coche cuando está apagado</small></label>
+      <label class="switch"><input type="checkbox" data-k="enabled"><span></span></label></div>
+    <div class="row"><label>Sensibilidad <b id="sensVal"></b><small>1 = solo golpes fuertes · 5 = cualquier roce</small></label>
+      <input type="range" min="1" max="5" step="1" data-k="sensitivity"></div>
+    <div class="row"><label>Pre-grabación<small>Guarda en memoria los segundos anteriores al golpe. Cámaras siempre encendidas: ≈ +2 W mientras vigila</small></label>
+      <label class="switch"><input type="checkbox" data-k="prerecord"><span></span></label></div>
+    <div class="row" id="preRow"><label>Segundos previos<small>Cuánto se guarda antes del golpe (5–30 s)</small></label>
+      <input type="number" min="5" max="30" step="1" data-k="prerecord_s"></div>
+    <div class="row"><label>Grabar habitáculo<small>Cámara interior con infrarrojos</small></label>
+      <label class="switch"><input type="checkbox" data-k="record_cabin"><span></span></label></div>
+    <div class="row"><label>Descartar si arrancas el coche<small>Si el coche se enciende durante la grabación, era el dueño entrando</small></label>
+      <label class="switch"><input type="checkbox" data-k="discard_on_drive"><span></span></label></div>
+    <details style="margin-top:8px">
+      <summary>Avanzado</summary>
+      <div class="row"><label>Duración del clip (s)<small>Tras el golpe; se alarga si hay más (máx. 180 s)</small></label>
+        <input type="number" min="15" max="180" data-k="clip_s"></div>
+      <div class="row"><label>Retardo de armado (s)<small>Tiempo tras apagar el coche para salir y cerrar</small></label>
+        <input type="number" min="10" max="900" data-k="arm_delay_s"></div>
+      <div class="row"><label>Umbral de inclinación (°)<small>Gato / grúa</small></label>
+        <input type="number" min="0.5" max="10" step="0.1" data-k="tilt_deg"></div>
+      <div class="row"><label>Grabar frontal HD<small>Además de la frontal ligera (≈ 40 MB por minuto)</small></label>
+        <label class="switch"><input type="checkbox" data-k="record_hd"><span></span></label></div>
+      <div class="row"><label>Grabar gran angular<small>Cámara frontal de gran angular</small></label>
+        <label class="switch"><input type="checkbox" data-k="record_wide"><span></span></label></div>
+      <div class="row"><label>Apagar tras (horas aparcado)<small>0 = no apagar nunca por tiempo</small></label>
+        <input type="number" min="0" max="720" step="1" data-k="max_parked_hours"></div>
+      <div class="row"><label>Tensión mínima (V)<small>Por debajo, el comma se apaga para proteger la batería de 12 V</small></label>
+        <input type="number" min="11" max="12.4" step="0.1" data-k="low_voltage"></div>
+      <div class="row"><label>Espacio máximo (GB)<small>Borra los eventos más antiguos no bloqueados</small></label>
+        <input type="number" min="1" max="50" step="1" data-k="max_storage_gb"></div>
+      <div class="row"><label>Contraseña web<small id="pwState"></small></label>
+        <span><input type="password" id="pw" placeholder="nueva" autocomplete="new-password"> <button id="pwBtn">Guardar</button></span></div>
+    </details>
+  </section>
+
+  <section>
+    <h2 style="margin-left:4px">Eventos <span id="evCount" class="muted"></span></h2>
+    <div id="events" class="events"><div class="empty">Cargando…</div></div>
+  </section>
+</main>
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const REASON = { impact: "Golpe", tilt: "Inclinación", rotate: "Balanceo", manual: "Manual" };
+const STATE = {
+  off: ["Desactivado", ""], arming: ["Armando", "s-arming"], armed: ["Vigilando", "s-armed"],
+  recording: ["Grabando", "s-recording"],
+};
+const CAMS = [["road.mp4", "Frontal"], ["dcamera.mp4", "Habitáculo"], ["ecamera.mp4", "Gran angular"], ["fcamera.mp4", "Frontal HD"]];
+let cfg = {}, openEv = null, lastEventsSig = "";
+
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2200); }
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+  return r.json();
+}
+const fmtBytes = (b) => b > 1e9 ? (b / 1e9).toFixed(1) + " GB" : (b / 1e6).toFixed(1) + " MB";
+const fmtDate = (t) => new Date(t * 1000).toLocaleString("es-ES", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+function renderConfig(c) {
+  cfg = c;
+  document.querySelectorAll("[data-k]").forEach((el) => {
+    if (document.activeElement === el) return;
+    const v = c[el.dataset.k];
+    if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
+  });
+  $("#sensVal").textContent = c.sensitivity;
+  $("#preRow").style.display = c.prerecord ? "" : "none";
+  $("#pwState").textContent = c.password_set ? "Protegida con contraseña (vacía = quitar)" : "Sin contraseña: cualquiera en tu red puede entrar";
+}
+
+function renderStatus(s) {
+  const onroad = s.onroad;
+  const [txt, cls] = onroad ? ["Conduciendo", "s-onroad"] : (STATE[s.state] || ["—", ""]);
+  $("#badge").className = "badge " + cls;
+  $("#stateText").textContent = txt;
+  let hint = "";
+  if (!s.t || Date.now() / 1000 - s.t > 10) hint = "sentineld no responde";
+  else if (s.state === "arming") hint = `se arma en ${s.arming_left_s}s`;
+  else if (s.state === "recording") hint = `${s.recording_left_s}s restantes`;
+  else if (s.state === "armed" && !s.detector_ready) hint = "calibrando sensor…";
+  else if (s.state === "armed" && cfg.prerecord) hint = s.cameras_on ? `pre-grabando · ${s.prerecord_buffer_s || 0}s en memoria` : "pre-grabación en pausa (temperatura)";
+  else if (!cfg.enabled) hint = "actívalo en Ajustes";
+  if (s.skipped_reason) hint += ` · último aviso ignorado: ${s.skipped_reason}`;
+  $("#stateHint").textContent = hint;
+  $("#volt").textContent = s.voltage ? s.voltage.toFixed(2) + " V" : "–";
+  $("#power").textContent = s.power_draw_w != null ? s.power_draw_w.toFixed(1) + " W" : "–";
+  $("#temp").textContent = s.max_temp_c ? Math.round(s.max_temp_c) + " °C" : "–";
+  $("#space").textContent = s.free_space_pct != null ? Math.round(s.free_space_pct) + " %" : "–";
+  const thr = s.impact_threshold_g || 0.1, v = s.live_impact_g || 0, scale = thr * 2;
+  $("#vibFill").style.width = Math.min(100, (v / scale) * 100) + "%";
+  $("#vibFill").style.background = v >= thr ? "var(--bad)" : "var(--accent)";
+  $("#vibThr").style.left = "50%";
+  $("#vib").textContent = s.state === "armed" || s.state === "recording" ? v.toFixed(3) + " g" : "–";
+  $("#thr").textContent = thr.toFixed(3) + " g";
+  $("#recordBtn").disabled = !cfg.enabled || onroad;
+  const lt = s.last_trigger;
+  $("#lastTrig").textContent = lt ? `Último disparo: ${REASON[lt.reason] || lt.reason} · ${fmtDate(lt.wall_time)}` : "";
+}
+
+function evStatus(e) {
+  return { recording: "grabando…", pending_export: "procesando…", exporting: "procesando…", failed: "error", ready: "" }[e.status] ?? e.status;
+}
+
+function renderEvents(list) {
+  const sig = JSON.stringify(list.map((e) => [e.id, e.status, e.locked, e.triggers?.length]));
+  if (sig === lastEventsSig) return;
+  lastEventsSig = sig;
+  $("#evCount").textContent = list.length ? `(${list.length} · ${fmtBytes(list.reduce((a, e) => a + (e.size_bytes || 0), 0))})` : "";
+  const box = $("#events");
+  if (!list.length) { box.innerHTML = '<div class="empty">Sin eventos todavía. Cuando el coche esté aparcado y armado, los golpes aparecerán aquí.</div>'; return; }
+  box.innerHTML = "";
+  for (const e of list) {
+    const el = document.createElement("div");
+    el.className = "ev" + (openEv === e.id ? " open" : "");
+    const files = e.files || {};
+    const reasons = [...new Set((e.triggers || []).map((t) => t.reason))];
+    el.innerHTML = `
+      <div class="ev-head">
+        <div class="ev-thumb" style="${files["road.mp4"] || files["fcamera.mp4"] ? `background-image:url('/media/${e.id}/thumb.jpg')` : ""}"></div>
+        <div class="ev-info">
+          <b>${fmtDate(e.wall_time)} ${e.locked ? "🔒" : ""}</b>
+          <span>${reasons.map((r) => `<span class="tag ${r}">${REASON[r] || r}</span>`).join("")}
+            ${e.peak ? `pico ${e.peak.toFixed(2)} g · ` : ""}${e.prerecord_s ? `${Math.round(e.prerecord_s)} s previos · ` : ""}${e.duration_s ? Math.round(e.duration_s) + " s · " : ""}${fmtBytes(e.size_bytes || 0)}
+            <em>${evStatus(e)}</em></span>
+        </div>
+      </div>
+      <div class="ev-body"></div>`;
+    el.querySelector(".ev-head").onclick = () => toggleEvent(el, e);
+    box.appendChild(el);
+    if (openEv === e.id) fillBody(el, e);
+  }
+}
+
+function toggleEvent(el, e) {
+  const open = !el.classList.contains("open");
+  document.querySelectorAll(".ev.open").forEach((x) => { x.classList.remove("open"); x.querySelector(".ev-body").innerHTML = ""; });
+  openEv = open ? e.id : null;
+  if (open) { el.classList.add("open"); fillBody(el, e); }
+}
+
+function fillBody(el, e) {
+  const body = el.querySelector(".ev-body");
+  const cams = CAMS.filter(([f]) => (e.files || {})[f]);
+  if (!cams.length) { body.innerHTML = `<p class="muted">${e.status === "failed" ? "No se pudo generar el vídeo." : "El vídeo se está procesando…"}</p>` + actions(e); bindActions(body, e); return; }
+  body.innerHTML = `<div class="tabs">${cams.map(([f, n], i) => `<button data-f="${f}" class="${i ? "" : "on"}">${n}</button>`).join("")}</div>
+    <video controls playsinline preload="metadata" src="/media/${e.id}/${cams[0][0]}"></video>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">Las vistas HD y de habitáculo son HEVC: se ven en Safari/iOS y en Chrome/Edge con aceleración por hardware.</p>
+    ${actions(e, cams[0][0])}`;
+  const v = body.querySelector("video");
+  if (e.trigger_at_s) {
+    const jb = document.createElement("button"); jb.textContent = `⏩ Ir al golpe (${e.trigger_at_s.toFixed(1)} s)`;
+    jb.onclick = () => { v.currentTime = Math.max(0, e.trigger_at_s - 2); v.play().catch(() => {}); };
+    body.querySelector(".actions").prepend(jb);
+  }
+  body.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
+    const t = v.currentTime; v.src = `/media/${e.id}/${b.dataset.f}`; v.currentTime = t; v.play().catch(() => {});
+    body.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
+    body.querySelector("[data-dl]").href = `/media/${e.id}/${b.dataset.f}?download=1`;
+  });
+  bindActions(body, e);
+}
+
+function actions(e, f) {
+  return `<div class="actions">
+    ${f ? `<a data-dl href="/media/${e.id}/${f}?download=1"><button>⬇ Descargar</button></a>` : ""}
+    <button data-lock>${e.locked ? "Desbloquear" : "🔒 Bloquear"}</button>
+    <button data-del class="danger">Borrar</button></div>`;
+}
+
+function bindActions(body, e) {
+  body.querySelector("[data-lock]").onclick = async () => { await api(`/api/events/${e.id}/lock`, { locked: !e.locked }); refreshEvents(); };
+  body.querySelector("[data-del]").onclick = async () => {
+    if (!confirm("¿Borrar este evento?")) return;
+    await api(`/api/events/${e.id}/delete`, {}); openEv = null; refreshEvents();
+  };
+}
+
+async function refreshStatus() {
+  try { const r = await api("/api/status"); renderConfig(r.config); renderStatus(r.status); }
+  catch (err) { $("#stateText").textContent = "Sin conexión"; }
+}
+async function refreshEvents() { try { renderEvents(await api("/api/events")); } catch (e) {} }
+
+document.querySelectorAll("[data-k]").forEach((el) => {
+  el.addEventListener("change", async () => {
+    const k = el.dataset.k;
+    const v = el.type === "checkbox" ? el.checked : Number(el.value);
+    try { renderConfig(await api("/api/config", { [k]: v })); toast("Guardado"); } catch (e) { toast("Error: " + e.message); }
+  });
+});
+$("#pwBtn").onclick = async () => {
+  try { renderConfig(await api("/api/config", { password: $("#pw").value })); $("#pw").value = ""; toast("Contraseña actualizada"); }
+  catch (e) { toast("Error: " + e.message); }
+};
+$("#recordBtn").onclick = async () => {
+  try { await api("/api/record", {}); toast("Grabando clip…"); } catch (e) { toast("No se puede grabar: " + e.message); }
+};
+
+refreshStatus(); refreshEvents();
+setInterval(refreshStatus, 1000);
+setInterval(refreshEvents, 5000);
+</script>
+</body>
+</html>

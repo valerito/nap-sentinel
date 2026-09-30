@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  NAP Sentinel @VERSION@ — vigilancia con el coche aparcado para NotAutopilot
+#
+#  Instalar (por SSH en el comma):   bash install.sh
+#  Opciones:  --yes      no preguntar y reiniciar al terminar
+#             --no-reboot  no reiniciar
+#  Desinstalar:  bash /data/sentinel/uninstall.sh
+#
+#  Qué hace:
+#   · copia sentinel a /data/sentinel (fuera de /data/openpilot)
+#   · añade un gancho de 12 líneas al final de system/manager/process_config.py
+#     (con try/except: si falla, openpilot arranca igual que siempre)
+#   · añade una línea a /data/continue.sh para volver a poner el gancho si
+#     una actualización de NAP lo quita
+#  No compila nada, no toca params de openpilot salvo DisablePowerDown mientras
+#  sentinel está activado (se restaura al desactivar/desinstalar).
+# ─────────────────────────────────────────────────────────────────────────────
+set -euo pipefail
+
+VERSION="@VERSION@"
+SENTINEL_HOME="${SENTINEL_HOME:-/data/sentinel}"
+OP="${NAP_OPENPILOT:-/data/openpilot}"
+CONT="${NAP_CONTINUE:-/data/continue.sh}"
+ASSUME_YES=0; REBOOT=ask
+for a in "$@"; do
+  case "$a" in
+    --yes|-y) ASSUME_YES=1; REBOOT=yes;;
+    --no-reboot) REBOOT=no;;
+  esac
+done
+
+say()  { echo -e "\033[1;32m[sentinel]\033[0m $*"; }
+warn() { echo -e "\033[1;33m[sentinel]\033[0m $*"; }
+die()  { echo -e "\033[1;31m[sentinel] $*\033[0m" >&2; exit 1; }
+ask()  {  # ask "question" -> 0 yes / 1 no
+  [ $ASSUME_YES -eq 1 ] && return 0
+  [ -r /dev/tty ] || return 1
+  local r; { read -r -p "$1 [s/N] " r < /dev/tty; } 2>/dev/null || return 1
+  case "$r" in s|S|y|Y|si|sí) return 0;; *) return 1;; esac
+}
+
+say "NAP Sentinel $VERSION"
+[ -f "$OP/system/manager/process_config.py" ] || die "No encuentro openpilot en $OP. Ejecuta esto en el comma (ssh comma@IP)."
+grep -q "managed_processes" "$OP/system/manager/process_config.py" || die "process_config.py con un formato desconocido; no toco nada."
+if ! grep -qi "notautopilot" "$OP/README.md" 2>/dev/null; then
+  warn "Esto no parece NotAutopilot. Funciona sobre openpilot 0.10+, pero está pensado para NAP."
+  ask "¿Continuar?" || die "Cancelado."
+fi
+
+PY=/usr/local/venv/bin/python3; [ -x "$PY" ] || PY="$(command -v python3 || true)"
+[ -n "$PY" ] || die "No encuentro python3."
+"$PY" -c "import av, aiohttp" 2>/dev/null || die "Al python de openpilot le faltan 'av' o 'aiohttp' (vienen con openpilot 0.9.6+)."
+
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+base64 -d > "$TMP/payload.tgz" <<'__NAP_SENTINEL_PAYLOAD__'
+@PAYLOAD@
+__NAP_SENTINEL_PAYLOAD__
+[ "$(sha256sum "$TMP/payload.tgz" | cut -d' ' -f1)" = "@SHA256@" ] || die "Instalador corrupto (checksum)."
+
+# 1) files -> /data/sentinel (keeps your config, power state and backups)
+NEW="$SENTINEL_HOME.new"
+rm -rf "$NEW"; mkdir -p "$NEW"
+tar xzf "$TMP/payload.tgz" -C "$NEW"
+for keep in config.json state.json continue.sh.bak; do
+  [ -f "$SENTINEL_HOME/$keep" ] && cp -p "$SENTINEL_HOME/$keep" "$NEW/$keep"
+done
+rm -rf "$SENTINEL_HOME"; mv "$NEW" "$SENTINEL_HOME"
+chmod +x "$SENTINEL_HOME"/*.sh
+say "archivos instalados en $SENTINEL_HOME"
+
+# 2) self-check of the python package with openpilot's interpreter
+(cd "$OP" && PYTHONPATH="$SENTINEL_HOME:$OP" "$PY" -c "import nap_sentinel.hook, nap_sentinel.detector, nap_sentinel.recorder, nap_sentinel.exporter, nap_sentinel.webd") \
+  || die "El paquete no importa con el python de openpilot; no he tocado NAP."
+
+# 3) boot-time upkeep in /data/continue.sh
+if [ -f "$CONT" ]; then
+  if ! grep -q "nap-sentinel" "$CONT"; then
+    [ -f "$SENTINEL_HOME/continue.sh.bak" ] || cp -p "$CONT" "$SENTINEL_HOME/continue.sh.bak"
+    LINE="[ -x $SENTINEL_HOME/ensure.sh ] && $SENTINEL_HOME/ensure.sh || true  # nap-sentinel"
+    if grep -q "^exec " "$CONT"; then
+      awk -v l="$LINE" '!done && /^exec /{print l; done=1} {print}' "$CONT" > "$TMP/continue.sh"
+    else
+      awk -v l="$LINE" 'NR==1{print; print l; next} {print}' "$CONT" > "$TMP/continue.sh"
+    fi
+    cat "$TMP/continue.sh" > "$CONT"   # keep owner/permissions
+    say "arranque: /data/continue.sh volverá a poner el gancho tras actualizar NAP"
+  fi
+else
+  warn "No existe $CONT; el gancho se mantendrá igualmente desde sentinel cada 10 min."
+fi
+
+# 4) the hook itself (also in a pending NAP update, if any)
+"$SENTINEL_HOME/ensure.sh"
+grep -q "nap-sentinel hook >>>" "$OP/system/manager/process_config.py" || die "No se pudo añadir el gancho."
+
+IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+echo
+say "✅ Instalado. Tras reiniciar:"
+say "   • Web:  http://${IP:-IP-del-comma}:8090   (misma red que el comma)"
+say "   • Actívalo en la web (Sentinel activado) y elige si quieres pre-grabación."
+say "   • Desinstalar: bash $SENTINEL_HOME/uninstall.sh"
+echo
+case "$REBOOT" in
+  yes) say "reiniciando…"; sudo reboot;;
+  no)  say "reinicia cuando quieras: sudo reboot";;
+  *)   if ask "¿Reiniciar el comma ahora? (con el coche aparcado)"; then sudo reboot; else say "reinicia cuando quieras: sudo reboot"; fi;;
+esac
