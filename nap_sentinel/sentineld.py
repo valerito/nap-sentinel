@@ -30,6 +30,7 @@ from nap_sentinel import config, storage
 from nap_sentinel.detector import MotionDetector, Trigger
 from nap_sentinel.exporter import export_event
 from nap_sentinel.recorder import Recorder
+from nap_sentinel.telegram import TelegramService, load_tg_state
 
 ThermalStatus = log.DeviceState.ThermalStatus
 
@@ -78,6 +79,8 @@ class Sentinel:
     self.last_hook_check = 0.0
     self.pwrsave_overridden = False
     self.shutdown_requested = False
+    self.telegram = TelegramService(log=cloudlog.warning)
+    self.telegram.start()
 
     config.write_procs(False, False)
     self._recover_interrupted_events()
@@ -114,7 +117,13 @@ class Sentinel:
       s.append("wideRoadEncodeData")
     if self.cfg["record_cabin"]:
       s.append("driverEncodeData")
+    if self._want_lq_stream():
+      s.append("livestreamWideRoadEncodeData")
     return s
+
+  def _want_lq_stream(self) -> bool:
+    # low-bitrate H.264 wide camera for Telegram, from stream_encoderd
+    return config.telegram_ready(self.cfg) and self.cfg["telegram_video"]
 
   # ── power: keep the device on while parked, with our own voltage floor ──
   def _manage_power(self, now: float, onroad: bool) -> None:
@@ -228,6 +237,7 @@ class Sentinel:
     self._set_powersave(False)
     self.pwrsave_overridden = True
     cloudlog.event("sentinel trigger", **trig_d, event_id=self.event["id"])
+    self.telegram.notify_trigger(self.event["id"])
 
   def _event_dir(self) -> Path:
     assert self.event is not None
@@ -260,7 +270,10 @@ class Sentinel:
     if ev is None:
       return
     if discard:
+      alert_msg_id = load_tg_state(ev["id"]).get("alert_msg_id")
       storage.delete_event(ev["id"])
+      if alert_msg_id:
+        self.telegram.notify_discard(ev["id"], alert_msg_id)
       cloudlog.event("sentinel: event discarded, car started", event_id=ev["id"])
       return
     ev["duration_s"] = round(time.monotonic() - self.record_started + ev.get("prerecord_s", 0.0), 1)
@@ -294,6 +307,8 @@ class Sentinel:
       cloudlog.exception("sentinel export failed")
       ev["status"] = "failed"
     storage.save_event(ev)
+    if ev["status"] == "ready":
+      self.telegram.notify_ready(ev["id"])
     storage.enforce_storage_cap(int(self.cfg["max_storage_gb"] * 1e9))
 
   # ── keep the manager hook present across NAP updates ──────
@@ -334,6 +349,7 @@ class Sentinel:
       "thermal_status": str(ds.thermalStatus),
       "max_temp_c": round(ds.maxTempC, 1),
       "free_space_pct": round(ds.freeSpacePercent, 1),
+      "network": str(ds.networkType),
       "parked_h": round((now - self.offroad_since) / 3600, 2) if self.offroad_since else 0,
     }
     try:
@@ -388,7 +404,7 @@ class Sentinel:
 
     cameras = self._cameras_wanted()
     sensors = self.state in (State.ARMED, State.RECORDING)
-    config.write_procs(sensors, cameras)
+    config.write_procs(sensors, cameras, cameras and self._want_lq_stream())
     self._update_recorder(cameras)
 
     if self.state == State.RECORDING:

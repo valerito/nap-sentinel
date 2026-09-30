@@ -24,6 +24,8 @@ STREAMS = {
   "roadEncodeData": "fcamera.hevc",
   "wideRoadEncodeData": "ecamera.hevc",
   "driverEncodeData": "dcamera.hevc",
+  # low-bitrate H.264 of the wide camera from stream_encoderd, for Telegram
+  "livestreamWideRoadEncodeData": "wide_lq.h264",
 }
 
 

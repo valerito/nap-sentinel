@@ -51,4 +51,4 @@ def test_stale_procs_request_expires(tmp_path, monkeypatch):
   d = config.read_json(config.PROCS_FILE)
   d["t"] -= 60
   config.atomic_write_json(config.PROCS_FILE, d)
-  assert config.read_procs() == {"sensors": False, "cameras": False}
+  assert config.read_procs() == {"sensors": False, "cameras": False, "stream": False}

@@ -81,6 +81,10 @@
   .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .muted { color: var(--muted); }
   .empty { text-align: center; color: var(--muted); padding: 32px 12px; }
+  .steps { padding-left: 20px; margin: 8px 0 12px; } .steps li { margin: 4px 0; }
+  code { background: var(--panel2); padding: 1px 5px; border-radius: 5px; font-size: 13px; }
+  a { color: var(--accent); }
+  .inline { display: flex; gap: 8px; } .inline input { flex: 1; width: auto; min-width: 0; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line);
     padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity .3s; pointer-events: none; }
   .toast.show { opacity: 1; }
@@ -148,6 +152,40 @@
     </details>
   </section>
 
+  <section class="card" id="tg">
+    <h2>Telegram</h2>
+    <div id="tgSetup">
+      <p class="muted" style="margin-top:0">Recibe un aviso al momento y el vídeo de la gran angular en tu Telegram, a través de un bot tuyo.</p>
+      <ol class="steps">
+        <li>En Telegram abre <a href="https://t.me/BotFather" target="_blank" rel="noopener"><b>@BotFather</b></a>, envía <code>/newbot</code> y elige un nombre.</li>
+        <li>Copia el <b>token</b> que te da (algo como <code>123456789:AAH…</code>) y pégalo aquí:</li>
+      </ol>
+      <div class="inline"><input type="password" id="tgToken" placeholder="token del bot" autocomplete="off"><button class="primary" id="tgTokenBtn">Guardar</button></div>
+    </div>
+    <div id="tgLink" hidden>
+      <p style="margin-top:0">Bot: <b id="tgBot"></b></p>
+      <div id="tgLinkIdle"><button class="primary" id="tgLinkBtn">Vincular mi Telegram</button>
+        <button id="tgForget" class="danger">Cambiar bot</button></div>
+      <div id="tgLinkWait" hidden>
+        <p>Pulsa el botón, y en Telegram pulsa <b>Iniciar</b> (START):</p>
+        <p><a id="tgLinkUrl" target="_blank" rel="noopener"><button class="primary">Abrir Telegram</button></a></p>
+        <p class="muted" style="font-size:12px">¿Telegram en otro dispositivo? Envía al bot: <code id="tgLinkCmd"></code> · <span id="tgLinkLeft"></span></p>
+        <p class="muted">Esperando confirmación…</p>
+      </div>
+    </div>
+    <div id="tgOn" hidden>
+      <p style="margin:0">✅ Vinculado <span class="muted" id="tgWho"></span></p>
+      <div class="actions" style="margin:10px 0 6px"><button id="tgTest">Enviar prueba</button><button id="tgUnlink" class="danger">Desvincular</button></div>
+      <div class="row"><label>Avisos de golpe<small>Mensaje al momento con el motivo y la batería</small></label>
+        <label class="switch"><input type="checkbox" data-k="telegram_alerts"><span></span></label></div>
+      <div class="row"><label>Enviar vídeo<small>Gran angular en baja calidad (H.264 ≈1 Mbps, ≈7 MB/min)</small></label>
+        <label class="switch"><input type="checkbox" data-k="telegram_video"><span></span></label></div>
+      <div class="row"><label>Vídeo solo por Wi-Fi<small>Guarda los datos móviles; se envía al conectar (hasta 24 h)</small></label>
+        <label class="switch"><input type="checkbox" data-k="telegram_video_wifi_only"><span></span></label></div>
+      <p class="muted" style="font-size:12px;margin-bottom:0">Comandos en el chat: /estado · /grabar · /ultimo · /activar · /desactivar</p>
+    </div>
+  </section>
+
   <section>
     <h2 style="margin-left:4px">Eventos <span id="evCount" class="muted"></span></h2>
     <div id="events" class="events"><div class="empty">Cargando…</div></div>
@@ -162,7 +200,8 @@ const STATE = {
   off: ["Desactivado", ""], arming: ["Armando", "s-arming"], armed: ["Vigilando", "s-armed"],
   recording: ["Grabando", "s-recording"],
 };
-const CAMS = [["road.mp4", "Frontal"], ["dcamera.mp4", "Habitáculo"], ["ecamera.mp4", "Gran angular"], ["fcamera.mp4", "Frontal HD"]];
+const CAMS = [["road.mp4", "Frontal"], ["dcamera.mp4", "Habitáculo"], ["ecamera.mp4", "Gran angular"], ["wide_lq.mp4", "Gran angular (ligera)"], ["fcamera.mp4", "Frontal HD"]];
+let tgLinkUntil = 0;
 let cfg = {}, openEv = null, lastEventsSig = "";
 
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2200); }
@@ -183,7 +222,22 @@ function renderConfig(c) {
   });
   $("#sensVal").textContent = c.sensitivity;
   $("#preRow").style.display = c.prerecord ? "" : "none";
+  renderTelegram(c);
   $("#pwState").textContent = c.password_set ? "Protegida con contraseña (vacía = quitar)" : "Sin contraseña: cualquiera en tu red puede entrar";
+}
+
+function renderTelegram(c) {
+  const linked = c.telegram_linked, hasToken = c.telegram_token_set;
+  $("#tgSetup").hidden = hasToken;
+  $("#tgLink").hidden = !hasToken || linked;
+  $("#tgOn").hidden = !linked;
+  $("#tgBot").textContent = c.telegram_bot ? "@" + c.telegram_bot : "";
+  $("#tgWho").textContent = linked ? `con ${c.telegram_chat_name || "tu chat"} vía @${c.telegram_bot}` : "";
+  const waiting = !linked && Date.now() < tgLinkUntil;
+  $("#tgLinkIdle").hidden = waiting;
+  $("#tgLinkWait").hidden = !waiting;
+  if (waiting) $("#tgLinkLeft").textContent = `caduca en ${Math.ceil((tgLinkUntil - Date.now()) / 60000)} min`;
+  if (linked && tgLinkUntil) { tgLinkUntil = 0; toast("✅ Telegram vinculado"); }
 }
 
 function renderStatus(s) {
@@ -310,6 +364,22 @@ $("#pwBtn").onclick = async () => {
   try { renderConfig(await api("/api/config", { password: $("#pw").value })); $("#pw").value = ""; toast("Contraseña actualizada"); }
   catch (e) { toast("Error: " + e.message); }
 };
+$("#tgTokenBtn").onclick = async () => {
+  const b = $("#tgTokenBtn"); b.disabled = true;
+  try { renderConfig(await api("/api/telegram/token", { token: $("#tgToken").value.trim() })); $("#tgToken").value = ""; toast("Bot guardado"); }
+  catch (e) { toast(e.message); } finally { b.disabled = false; }
+};
+$("#tgLinkBtn").onclick = async () => {
+  try {
+    const r = await api("/api/telegram/link", {});
+    $("#tgLinkUrl").href = r.url; $("#tgLinkCmd").textContent = `/start ${r.code}`;
+    tgLinkUntil = Date.now() + r.expires_s * 1000; renderTelegram(cfg);
+    window.open(r.url, "_blank");
+  } catch (e) { toast(e.message); }
+};
+$("#tgForget").onclick = async () => { if (confirm("¿Olvidar este bot?")) renderConfig(await api("/api/telegram/unlink", { forget_bot: true })); };
+$("#tgUnlink").onclick = async () => { if (confirm("¿Dejar de enviar avisos a este chat?")) renderConfig(await api("/api/telegram/unlink", {})); };
+$("#tgTest").onclick = async () => { try { await api("/api/telegram/test", {}); toast("Mensaje de prueba enviado"); } catch (e) { toast("Error: " + e.message); } };
 $("#recordBtn").onclick = async () => {
   try { await api("/api/record", {}); toast("Grabando clip…"); } catch (e) { toast("No se puede grabar: " + e.message); }
 };

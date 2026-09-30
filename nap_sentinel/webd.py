@@ -9,18 +9,20 @@ web_password setting (from the page itself) to require HTTP basic auth.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hmac
 import os
+import time
 from pathlib import Path
 
 from aiohttp import web
 
-from nap_sentinel import config, storage
+from nap_sentinel import config, storage, telegram
 
 PORT = int(os.environ.get("SENTINEL_WEB_PORT", "8090"))
 WEB_DIR = Path(__file__).parent / "web"
-MEDIA_FILES = {"road.mp4", "fcamera.mp4", "ecamera.mp4", "dcamera.mp4", "thumb.jpg"}
+MEDIA_FILES = {"road.mp4", "fcamera.mp4", "ecamera.mp4", "dcamera.mp4", "wide_lq.mp4", "thumb.jpg"}
 
 def make_app() -> web.Application:
 
@@ -56,6 +58,10 @@ def make_app() -> web.Application:
   async def post_config(request):
     try:
       data = await request.json()
+      # Telegram identity is only changed through /api/telegram/*
+      data = {k: v for k, v in data.items()
+              if not k.startswith("telegram_") or k in ("telegram_alerts", "telegram_video", "telegram_video_wifi_only")}
+      data.pop("web_password", None)
       if "password" in data:
         data["web_password"] = str(data.pop("password") or "")
       return web.json_response(config.public(config.update(data)))
@@ -77,6 +83,64 @@ def make_app() -> web.Application:
     ev["locked"] = bool(data.get("locked", not ev.get("locked")))
     storage.save_event(ev)
     return web.json_response(ev)
+
+  # ── Telegram ────────────────────────────────────────────
+  async def _body(request) -> dict:
+    try:
+      return await request.json() if request.can_read_body else {}
+    except ValueError:
+      return {}
+
+  def _tg_public() -> dict:
+    return config.public(config.load())
+
+  async def tg_token(request):
+    token = str((await _body(request)).get("token", "")).strip()
+    if not token or ":" not in token:
+      return web.json_response({"error": "Token no válido. Cópialo entero desde @BotFather (123456:ABC…)."}, status=400)
+    loop = asyncio.get_running_loop()
+    try:
+      me = await loop.run_in_executor(None, telegram.get_me, token)
+      await loop.run_in_executor(None, lambda: telegram.api(token, "deleteWebhook"))
+    except Exception as e:
+      return web.json_response({"error": f"Telegram rechazó el token: {e}"}, status=400)
+    cfg = config.load()
+    same_bot = cfg["telegram_token"] == token
+    config.update({"telegram_token": token, "telegram_bot": me.get("username", ""),
+                   **({} if same_bot else {"telegram_chat_id": "", "telegram_chat_name": ""})})
+    return web.json_response(_tg_public())
+
+  async def tg_link(request):
+    cfg = config.load()
+    if not cfg["telegram_token"]:
+      return web.json_response({"error": "Primero guarda el token del bot."}, status=409)
+    code = telegram.new_link_code()
+    config.update({"telegram_link_code": code, "telegram_link_expires": time.time() + telegram.LINK_CODE_TTL_S})  # noqa: TID251
+    bot = cfg["telegram_bot"]
+    return web.json_response({"code": code, "bot": bot, "url": f"https://t.me/{bot}?start={code}",
+                              "expires_s": telegram.LINK_CODE_TTL_S})
+
+  async def tg_unlink(request):
+    data = await _body(request)
+    changes = {"telegram_chat_id": "", "telegram_chat_name": "", "telegram_link_code": "", "telegram_link_expires": 0.0}
+    if data.get("forget_bot"):
+      changes.update({"telegram_token": "", "telegram_bot": ""})
+    config.update(changes)
+    return web.json_response(_tg_public())
+
+  async def tg_test(request):
+    cfg = config.load()
+    if not config.telegram_ready(cfg):
+      return web.json_response({"error": "Telegram no está vinculado."}, status=409)
+    status = config.read_json(config.STATUS_FILE, default={}) or {}
+    text = "🧪 <b>Prueba de Sentinel</b>\nSi ves esto, los avisos funcionan.\n\n" + telegram.status_text(status, cfg)
+    loop = asyncio.get_running_loop()
+    try:
+      await loop.run_in_executor(None, lambda: telegram.api(cfg["telegram_token"], "sendMessage",
+                                                            {"chat_id": cfg["telegram_chat_id"], "text": text, "parse_mode": "HTML"}))
+    except Exception as e:
+      return web.json_response({"error": str(e)}, status=502)
+    return web.json_response({"ok": True})
 
   async def record_now(request):
     if not config.load()["enabled"]:
@@ -106,6 +170,10 @@ def make_app() -> web.Application:
     web.post("/api/events/{eid}/delete", delete_event),
     web.post("/api/events/{eid}/lock", lock_event),
     web.post("/api/record", record_now),
+    web.post("/api/telegram/token", tg_token),
+    web.post("/api/telegram/link", tg_link),
+    web.post("/api/telegram/unlink", tg_unlink),
+    web.post("/api/telegram/test", tg_test),
     web.get("/media/{eid}/{name}", media),
   ])
   return app

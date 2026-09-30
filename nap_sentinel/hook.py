@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import time
 
-_cache = {"t": 0.0, "d": {"sensors": False, "cameras": False}}
+_OFF = {"sensors": False, "cameras": False, "stream": False}
+_cache = {"t": 0.0, "d": dict(_OFF)}
 
 
 def _procs() -> dict:
@@ -19,7 +20,7 @@ def _procs() -> dict:
       from nap_sentinel.config import read_procs
       _cache["d"] = read_procs()
     except Exception:
-      _cache["d"] = {"sensors": False, "cameras": False}
+      _cache["d"] = dict(_OFF)
     _cache["t"] = now
   return _cache["d"]
 
@@ -45,7 +46,8 @@ def _always(started, params, CP) -> bool:
 def install(procs: list, managed_processes: dict) -> None:
   from openpilot.system.manager.process import PythonProcess
 
-  for name, key in (("sensord", "sensors"), ("camerad", "cameras"), ("encoderd", "cameras")):
+  for name, key in (("sensord", "sensors"), ("camerad", "cameras"), ("encoderd", "cameras"),
+                    ("stream_encoderd", "stream")):
     p = managed_processes.get(name)
     if p is not None:
       _extend(p, key)

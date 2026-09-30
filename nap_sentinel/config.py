@@ -33,7 +33,19 @@ SCHEMA: dict[str, tuple] = {
   "max_parked_hours": (0.0, float, 0.0, 720.0),   # 0 = never power down on time
   "low_voltage": (11.8, float, 11.0, 12.4),       # hard floor, always active
   "web_password": ("", str, None, None),
+  # Telegram (your own bot, created with @BotFather)
+  "telegram_token": ("", str, None, None),
+  "telegram_bot": ("", str, None, None),          # bot username, from getMe
+  "telegram_chat_id": ("", str, None, None),      # set by /start <code>
+  "telegram_chat_name": ("", str, None, None),
+  "telegram_link_code": ("", str, None, None),
+  "telegram_link_expires": (0.0, float, None, None),
+  "telegram_alerts": (True, bool, None, None),
+  "telegram_video": (True, bool, None, None),     # low-quality wide camera clip
+  "telegram_video_wifi_only": (False, bool, None, None),
 }
+
+SECRETS = ("web_password", "telegram_token", "telegram_link_code")
 
 
 def config_path() -> Path:
@@ -82,9 +94,15 @@ def update(changes: dict) -> dict:
 
 
 def public(cfg: dict) -> dict:
-  out = {k: v for k, v in cfg.items() if k != "web_password"}
+  out = {k: v for k, v in cfg.items() if k not in SECRETS}
   out["password_set"] = bool(cfg.get("web_password"))
+  out["telegram_token_set"] = bool(cfg.get("telegram_token"))
+  out["telegram_linked"] = bool(cfg.get("telegram_token") and cfg.get("telegram_chat_id"))
   return out
+
+
+def telegram_ready(cfg: dict) -> bool:
+  return bool(cfg.get("telegram_token") and cfg.get("telegram_chat_id"))
 
 
 # ── live state shared with the manager hook and the web UI ─────────────────
@@ -94,13 +112,13 @@ TRIGGER_FILE = SHM / "nap_sentinel_trigger"       # "record now" from the web
 STALE_S = 10.0
 
 
-def write_procs(sensors: bool, cameras: bool) -> None:
-  atomic_write_json(PROCS_FILE, {"t": time.monotonic(), "sensors": sensors, "cameras": cameras})
+def write_procs(sensors: bool, cameras: bool, stream: bool = False) -> None:
+  atomic_write_json(PROCS_FILE, {"t": time.monotonic(), "sensors": sensors, "cameras": cameras, "stream": stream})
 
 
 def read_procs() -> dict:
   d = read_json(PROCS_FILE, default=None) or {}
   # if sentineld dies, its requests expire and the manager stops the extra processes
   if time.monotonic() - float(d.get("t", -1e9)) > STALE_S:
-    return {"sensors": False, "cameras": False}
+    return {"sensors": False, "cameras": False, "stream": False}
   return d

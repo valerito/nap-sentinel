@@ -4,6 +4,7 @@
   fcamera.hevc -> fcamera.mp4  HEVC road camera
   ecamera.hevc -> ecamera.mp4  HEVC wide road camera
   dcamera.hevc -> dcamera.mp4  HEVC cabin (IR) camera
+  wide_lq.h264 -> wide_lq.mp4  H.264 ~1 Mbps wide camera (sent to Telegram)
 
 Each raw file has a "<file>.ts" sidecar with the encoder timestamp of every
 frame, used to rebuild the real timing. PyAV is an openpilot dependency
@@ -25,6 +26,7 @@ OUTPUTS = {
   "fcamera.hevc": ("fcamera.mp4", "hevc"),
   "ecamera.hevc": ("ecamera.mp4", "hevc"),
   "dcamera.hevc": ("dcamera.mp4", "hevc"),
+  "wide_lq.h264": ("wide_lq.mp4", "h264"),
 }
 
 
@@ -107,7 +109,11 @@ def export_event(event_dir: Path, thumb_at_s: float = 0.0, keep_raw: bool = Fals
   produced: dict[str, int] = {}
   for raw_name, (mp4, fmt) in OUTPUTS.items():
     raw = event_dir / raw_name
-    if not raw.is_file() or raw.stat().st_size == 0:
+    if not raw.is_file():
+      continue
+    if raw.stat().st_size == 0:  # stream never delivered a keyframe
+      raw.unlink(missing_ok=True)
+      Path(str(raw) + ".ts").unlink(missing_ok=True)
       continue
     try:
       remux(raw, event_dir / mp4, fmt)

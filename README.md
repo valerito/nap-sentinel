@@ -34,6 +34,26 @@ bash /data/sentinel/uninstall.sh            # pregunta si borrar las grabaciones
 bash /data/sentinel/uninstall.sh --purge    # borra también las grabaciones
 ```
 
+## Avisos por Telegram
+
+Desde el panel web (sección **Telegram**):
+
+1. En Telegram, abre **@BotFather**, envía `/newbot` y copia el token que te da.
+2. Pega el token en la web y pulsa **Guardar**.
+3. Pulsa **Vincular mi Telegram**: se abre tu bot; pulsa **Iniciar**. Queda vinculado solo ese chat. El código del enlace caduca a los 15 minutos.
+
+A partir de ahí:
+
+- **Aviso al momento** con el motivo (golpe, inclinación, balanceo), la fuerza, la hora y la tensión de la batería.
+- **Vídeo de la gran angular en baja calidad** (H.264 ≈1 Mbps, ≈7 MB por minuto), enviado como respuesta al aviso en cuanto termina el clip. Si usas pre-grabación, incluye los segundos anteriores al golpe.
+  - Lo codifica el hardware del comma con `stream_encoderd`, que solo funciona mientras se graba, así que no gasta CPU.
+  - Si no hay conexión, se reintenta durante 24 h.
+  - Opción **Vídeo solo por Wi-Fi** para no gastar datos móviles.
+- Si arrancas el coche durante la grabación, llega un mensaje de "era el dueño, descartado".
+- **Comandos** desde tu chat: `/estado`, `/grabar`, `/ultimo` (reenvía el último vídeo), `/activar`, `/desactivar`. El bot ignora cualquier otro chat.
+
+El token se guarda solo en el comma (`/data/sentinel/config.json`). No aparece en la web ni en los logs.
+
 ## Qué toca en el comma
 
 | Dónde | Qué |
@@ -89,6 +109,8 @@ La web muestra la vibración en directo frente al umbral. Úsala para calibrar: 
 | `low_voltage` | 11.8 | Por debajo, el comma se apaga para proteger la batería de 12 V |
 | `max_parked_hours` | 0 | Apagar tras X horas aparcado (0 = nunca) |
 | `web_password` | "" | Si se define, la web pide contraseña (cualquier usuario) |
+| `telegram_alerts` / `telegram_video` | true | Aviso al momento / enviar el vídeo gran angular ligero |
+| `telegram_video_wifi_only` | false | Esperar a tener Wi-Fi para enviar el vídeo |
 
 ## Energía
 
@@ -117,4 +139,5 @@ Archivos:
 - `detector.py`: detección de golpe, inclinación y balanceo.
 - `recorder.py`: búfer circular y escritura de las cámaras.
 - `exporter.py`: conversión a MP4 sin recodificar.
+- `telegram.py`: bot de Telegram (vinculación, avisos, vídeo, comandos).
 - `webd.py` y `web/index.html`: visor web.
