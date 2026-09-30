@@ -278,6 +278,9 @@ class TelegramService:
       api(cfg["telegram_token"], "sendMessage", {"chat_id": cfg["telegram_chat_id"], "text": arg, "parse_mode": "HTML"})
 
   def _send_alert(self, cfg: dict, eid: str) -> None:
+    st0 = load_tg_state(eid)
+    if st0.pop("alert_pending", None):   # the delay is over: the video may go after this
+      save_tg_state(eid, st0)
     if not cfg["telegram_alerts"]:
       return
     ev = storage.load_event(eid)
@@ -317,6 +320,11 @@ class TelegramService:
     st = load_tg_state(eid)
     if (st.get("video_sent") or st.get("video_failed")) and not force:
       return "ya enviado"
+    age = time.time() - ev.get("wall_time", 0)  # noqa: TID251
+    if st.get("alert_pending") and not force and age < cfg["telegram_alert_delay_s"] + 300:
+      # alert still waiting for its delay (the car may be started and the event
+      # discarded); sentineld queues the video right after the alert
+      return "esperando al aviso"
     if cfg["telegram_video_wifi_only"] and not force:
       net = str((config.read_json(config.STATUS_FILE, default={}) or {}).get("network", ""))
       if "wifi" not in net.lower():

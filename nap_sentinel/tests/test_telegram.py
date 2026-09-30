@@ -257,3 +257,28 @@ def test_thumbnail_comes_from_the_sent_clip(tmp_path):
   im = Image.open(io.BytesIO(b)).convert("RGB")
   r, g, _ = im.getpixel((im.width // 2, im.height // 2))
   assert g > 150 and r < 80 and max(im.size) <= 320
+
+
+def test_video_waits_for_delayed_alert(env):
+  _linked()
+  eid = _event()
+  telegram.save_tg_state(eid, {"alert_pending": True})
+  svc = telegram.TelegramService()
+  assert svc._send_video(config.load(), eid) == "esperando al aviso"
+  svc._last_scan = -1e9
+  svc._scan_pending()                                   # the retry scan must not send it either
+  assert "sendVideo" not in env.methods()
+  svc.handle("alert", eid)                              # delay over: alert, then video
+  svc.handle("video", eid)
+  assert env.methods() == ["sendMessage", "sendVideo"]
+  assert env.calls[1][1]["reply_to_message_id"] == telegram.load_tg_state(eid)["alert_msg_id"]
+
+
+def test_stale_pending_flag_does_not_block_forever(env):
+  _linked()
+  eid = _event()
+  ev = storage.load_event(eid)
+  ev["wall_time"] = time.time() - 3600
+  storage.save_event(ev)
+  telegram.save_tg_state(eid, {"alert_pending": True})   # e.g. sentineld restarted mid-delay
+  assert telegram.TelegramService()._send_video(config.load(), eid) == "enviado"

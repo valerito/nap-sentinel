@@ -92,6 +92,7 @@ class Sentinel:
     from nap_sentinel.telegram import append_log
     timesync.set_logger(lambda m: (cloudlog.warning(f"sentinel: {m}"), append_log(m)))
     self.pending_alerts: dict[str, float] = {}   # event id -> monotonic time to send
+    self.videos_waiting: set[str] = set()        # clips ready before their (delayed) alert
     self.telegram.start()
 
     config.write_procs(False, False)
@@ -299,6 +300,7 @@ class Sentinel:
       # give the owner time to start the car: if it starts, the event is
       # discarded and this alert is never sent
       self.pending_alerts[self.event["id"]] = now + delay
+      save_tg_state(self.event["id"], {**load_tg_state(self.event["id"]), "alert_pending": True})
     else:
       self.telegram.notify_trigger(self.event["id"])
 
@@ -334,6 +336,7 @@ class Sentinel:
       return
     if discard:
       self.pending_alerts.pop(ev["id"], None)
+      self.videos_waiting.discard(ev["id"])
       alert_msg_id = load_tg_state(ev["id"]).get("alert_msg_id")
       storage.delete_event(ev["id"])
       if alert_msg_id:
@@ -376,7 +379,11 @@ class Sentinel:
       ev["status"] = "failed"
     storage.save_event(ev)
     if ev["status"] == "ready":
-      self.telegram.notify_ready(ev["id"])
+      if ev["id"] in self.pending_alerts:
+        # the alert is still waiting for its delay: the video must go after it
+        self.videos_waiting.add(ev["id"])
+      else:
+        self.telegram.notify_ready(ev["id"])
     storage.enforce_storage_cap(int(self.cfg["max_storage_gb"] * 1e9))
 
   # ── keep the manager hook present across NAP updates ──────
@@ -489,6 +496,10 @@ class Sentinel:
         self.pending_alerts.pop(eid)
         if storage.load_event(eid) is not None:
           self.telegram.notify_trigger(eid)
+          if eid in self.videos_waiting:
+            # same queue, single sender thread: the video is sent after the alert
+            self.videos_waiting.discard(eid)
+            self.telegram.notify_ready(eid)
 
     self._maybe_export()
     self._check_hook(now)
