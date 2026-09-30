@@ -32,7 +32,11 @@ EVENT_ID_RE = re.compile(r"^[0-9]{8}-[0-9]{6}(-[0-9]+)?$")
 
 def new_event_id(wall_time: float | None = None) -> str:
   root = sentinel_root()
-  base = time.strftime("%Y%m%d-%H%M%S", time.localtime(wall_time or time.time()))  # noqa: TID251  (wall clock for event timestamps)
+  try:
+    from nap_sentinel import config, timesync
+    base = timesync.fmt(wall_time or time.time(), config.load()["timezone"], "%Y%m%d-%H%M%S")  # noqa: TID251
+  except Exception:
+    base = time.strftime("%Y%m%d-%H%M%S", time.localtime(wall_time or time.time()))  # noqa: TID251
   eid, n = base, 1
   while (root / eid).exists():
     eid = f"{base}-{n}"

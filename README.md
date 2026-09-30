@@ -24,6 +24,7 @@ Si alguien golpea, levanta o balancea el coche, sentinel graba las cámaras (fro
 - [Qué detecta](#qué-detecta)
 - [Ajustes](#ajustes)
 - [Energía](#energía)
+- [Hora y zona horaria](#hora-y-zona-horaria)
 - [Qué toca en el comma](#qué-toca-en-el-comma)
 - [Solución de problemas](#solución-de-problemas)
 - [Limitaciones y avisos](#limitaciones-y-avisos)
@@ -171,6 +172,7 @@ Se cambian en la web o en `/data/sentinel/config.json`.
 | `low_voltage` | 11.8 | Por debajo, el comma se apaga para proteger la batería de 12 V |
 | `max_parked_hours` | 0 | Apagar tras X horas aparcado (0 = nunca) |
 | `web_password` | "" | Si se define, la web pide contraseña (cualquier usuario) |
+| `timezone` | Europe/Madrid | Zona horaria de los avisos de Telegram y los nombres de eventos |
 | `telegram_alerts` | true | Enviar el aviso de evento |
 | `telegram_alert_delay_s` | 30 | Segundos de espera antes de avisar; si arrancas en ese tiempo no se avisa (0 = inmediato) |
 | `telegram_video` | true | Enviar el vídeo de la gran angular ligera |
@@ -182,6 +184,17 @@ Se cambian en la web o en `/data/sentinel/config.json`.
 - Se mantiene un **corte real por tensión**: 11,8 V filtrados durante 45 s. Además, no se graba por debajo de 11,9 V.
 - Opcionalmente, puedes apagar el comma tras X horas aparcado.
 - Si el comma está demasiado caliente, no graba.
+- **Consumo en la web**: el comma 3X da su consumo directamente. En el comma 4 ese sensor no existe, así que se calcula con la tensión y la corriente de entrada. Al pasar el ratón por encima se ve de dónde sale el dato. Si un modelo no da ninguna medida, aparece "–".
+
+## Hora y zona horaria
+
+El comma pone su reloj con el GPS o por NTP. Aparcado en un garaje, sin cobertura GPS, puede quedarse con una hora muy desfasada (meses). Eso afecta a los nombres de los eventos y a las horas de los avisos. Sentinel la corrige de tres formas:
+
+- **Automática con Telegram**: cada vez que habla con los servidores de Telegram, compara la hora y la corrige si difiere más de 1 minuto.
+- **Desde el panel web**: si la hora del comma difiere más de 2 minutos de la de tu móvil o PC, aparece un aviso amarillo con el botón **Poner la hora de este dispositivo**.
+- **Manual por SSH**: `sudo date -u -s "2026-09-30 15:00:00"` (hora UTC).
+
+La **zona horaria** se elige en *Avanzado → Zona horaria* (por defecto `Europe/Madrid`). Se usa para las horas de Telegram y los nombres de los eventos nuevos. La web muestra las horas en la zona de tu navegador.
 
 ## Qué toca en el comma
 
@@ -216,6 +229,8 @@ tail -50 /data/sentinel/telegram.log                  # registro de Telegram
 | Telegram no manda el vídeo | Icono ✈️⚠️ del evento o *Registro de envíos*. `event.json` → `export_errors` indica qué cámara no se pudo convertir. |
 | No recibo el aviso | ¿Arrancaste el coche en los primeros 30 s? Entonces se descartó a propósito. Revisa *Esperar antes de avisar*. |
 | Demasiados avisos | Baja la sensibilidad o sube *Esperar antes de avisar*. |
+| Consumo "0,0 W" o "–" | Actualiza a 1.1.6+. Pasa el ratón por el valor para ver de dónde sale la medida. |
+| Horas o nombres de eventos con fecha rara | La hora del comma está mal: usa el botón del aviso amarillo de la web (ver [Hora y zona horaria](#hora-y-zona-horaria)). |
 | El instalador muestra una versión vieja | Caché de GitHub: espera un par de minutos y repite. |
 
 ## Limitaciones y avisos
@@ -229,6 +244,7 @@ tail -50 /data/sentinel/telegram.log                  # registro de Telegram
 
 | Versión | Cambios |
 |---|---|
+| 1.1.6 | Consumo real en el comma 4 (antes salía siempre 0,0 W). Corrección de la hora del comma (automática con Telegram y botón en la web) y zona horaria configurable. |
 | 1.1.5 | La miniatura de Telegram sale del propio vídeo enviado (gran angular), y el pie indica si se usó la frontal por falta de gran angular. README actualizado. |
 | 1.1.4 | Corrige la conversión a MP4 en el comma (PyAV 13 y `ffmpeg` sin H.264): ya se generan los vídeos ligeros que se mandan a Telegram. Los eventos anteriores se reparan solos. |
 | 1.1.3 | El aviso de Telegram espera 30 s (configurable), así que arrancar el coche lo cancela. Los errores de exportación quedan guardados y se muestran. |
@@ -255,3 +271,4 @@ Archivos:
 - `telegram.py`: bot de Telegram (vinculación, avisos, vídeo, comandos, registro).
 - `webd.py` y `web/index.html`: panel web.
 - `config.py` y `storage.py`: ajustes, estado compartido y eventos.
+- `timesync.py`: corrección de la hora del comma y zona horaria.

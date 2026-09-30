@@ -33,6 +33,7 @@ SCHEMA: dict[str, tuple] = {
   "max_parked_hours": (0.0, float, 0.0, 720.0),   # 0 = never power down on time
   "low_voltage": (11.8, float, 11.0, 12.4),       # hard floor, always active
   "web_password": ("", str, None, None),
+  "timezone": ("Europe/Madrid", str, None, None),  # for Telegram times and event names
   # Telegram (your own bot, created with @BotFather)
   "telegram_token": ("", str, None, None),
   "telegram_bot": ("", str, None, None),          # bot username, from getMe

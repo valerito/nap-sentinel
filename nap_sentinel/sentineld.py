@@ -80,6 +80,9 @@ class Sentinel:
     self.pwrsave_overridden = False
     self.shutdown_requested = False
     self.telegram = TelegramService(log=cloudlog.warning)
+    from nap_sentinel import timesync
+    from nap_sentinel.telegram import append_log
+    timesync.set_logger(lambda m: (cloudlog.warning(f"sentinel: {m}"), append_log(m)))
     self.pending_alerts: dict[str, float] = {}   # event id -> monotonic time to send
     self.telegram.start()
 
@@ -97,6 +100,19 @@ class Sentinel:
     ign = any(ps.ignitionLine or ps.ignitionCan for ps in self.sm['pandaStates']
               if ps.pandaType != log.PandaState.PandaType.unknown)
     return bool(self.sm['deviceState'].started or ign)
+
+  def _power(self, ds) -> dict:
+    """Device power draw. The comma 3X reports it in deviceState.powerDrawW,
+    but on the comma 4 that sensor doesn't exist and it is always 0, so fall
+    back to the input voltage x current measured for pandad, then to the SoM."""
+    if ds.powerDrawW > 0.05:
+      return {"power_draw_w": round(ds.powerDrawW, 2), "power_source": "comma"}
+    ps = self.sm['peripheralState']
+    if ps.voltage > 0 and ps.current > 0:
+      return {"power_draw_w": round(ps.voltage * ps.current / 1e6, 2), "power_source": "entrada"}
+    if ds.somPowerDrawW > 0.05:
+      return {"power_draw_w": round(ds.somPowerDrawW, 2), "power_source": "SoM"}
+    return {"power_draw_w": None, "power_source": None}
 
   def _voltage(self) -> float | None:
     ps = self.sm['peripheralState']
@@ -364,7 +380,7 @@ class Sentinel:
       "last_trigger": self.last_trigger,
       "skipped_reason": self.skipped_reason,
       "voltage": self._voltage(),
-      "power_draw_w": round(ds.powerDrawW, 2),
+      **self._power(ds),
       "thermal_status": str(ds.thermalStatus),
       "max_temp_c": round(ds.maxTempC, 1),
       "free_space_pct": round(ds.freeSpacePercent, 1),

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0e1116">
 <title>Sentinel · NotAutopilot</title>
+<link rel="icon" href="data:,">
 <style>
   :root {
     --bg: #0e1116; --panel: #161b22; --panel2: #1d242e; --line: #2a3340;
@@ -87,6 +88,9 @@
   .inline { display: flex; gap: 8px; } .inline input { flex: 1; width: auto; min-width: 0; }
   .log { white-space: pre-wrap; font-size: 11px; max-height: 220px; overflow: auto; background: var(--panel2); padding: 8px; border-radius: 8px; }
   .tgst { font-size: 12px; margin-left: 4px; }
+  .warnbox { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap;
+    background: color-mix(in srgb, var(--warn) 18%, transparent); border: 1px solid var(--warn); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+  select { padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); color: var(--text); font: inherit; max-width: 180px; }
   .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line);
     padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity .3s; pointer-events: none; }
   .toast.show { opacity: 1; }
@@ -100,6 +104,10 @@
   </header>
 
   <section class="card">
+    <div id="clockWarn" class="warnbox" hidden>
+      <span>⚠️ La hora del comma está mal: <b id="clockDev"></b> (desfase <span id="clockOff"></span>).</span>
+      <button class="primary" id="clockFix">Poner la hora de este dispositivo</button>
+    </div>
     <div class="state">
       <div id="badge" class="badge"><span class="dot"></span><span id="stateText">Cargando…</span></div>
       <span id="stateHint" class="muted"></span>
@@ -147,6 +155,8 @@
         <input type="number" min="0" max="720" step="1" data-k="max_parked_hours"></div>
       <div class="row"><label>Tensión mínima (V)<small>Por debajo, el comma se apaga para proteger la batería de 12 V</small></label>
         <input type="number" min="11" max="12.4" step="0.1" data-k="low_voltage"></div>
+      <div class="row"><label>Zona horaria<small>Para las horas de Telegram y los nombres de los eventos</small></label>
+        <select data-k="timezone" id="tzSel"></select></div>
       <div class="row"><label>Espacio máximo (GB)<small>Borra los eventos más antiguos no bloqueados</small></label>
         <input type="number" min="1" max="50" step="1" data-k="max_storage_gb"></div>
       <div class="row"><label>Contraseña web<small id="pwState"></small></label>
@@ -252,7 +262,7 @@ function renderStatus(s) {
   $("#badge").className = "badge " + cls;
   $("#stateText").textContent = txt;
   let hint = "";
-  if (!s.t || Date.now() / 1000 - s.t > 10) hint = "sentineld no responde";
+  if (s.t == null || statusAge == null || statusAge > 10) hint = "sentineld no responde";
   else if (s.state === "arming") hint = `se arma en ${s.arming_left_s}s`;
   else if (s.state === "recording") hint = `${s.recording_left_s}s restantes`;
   else if (s.state === "armed" && !s.detector_ready) hint = "calibrando sensor…";
@@ -262,6 +272,7 @@ function renderStatus(s) {
   $("#stateHint").textContent = hint;
   $("#volt").textContent = s.voltage ? s.voltage.toFixed(2) + " V" : "–";
   $("#power").textContent = s.power_draw_w != null ? s.power_draw_w.toFixed(1) + " W" : "–";
+  $("#power").title = s.power_source ? `medido: ${s.power_source}` : "este comma no informa del consumo";
   $("#temp").textContent = s.max_temp_c ? Math.round(s.max_temp_c) + " °C" : "–";
   $("#space").textContent = s.free_space_pct != null ? Math.round(s.free_space_pct) + " %" : "–";
   const thr = s.impact_threshold_g || 0.1, v = s.live_impact_g || 0, scale = thr * 2;
@@ -371,8 +382,32 @@ function bindActions(body, e) {
   };
 }
 
+let statusAge = null;
+function renderClock(serverTime) {
+  const off = serverTime - Date.now() / 1000;
+  const bad = Math.abs(off) > 120;
+  $("#clockWarn").hidden = !bad;
+  if (bad) {
+    $("#clockDev").textContent = new Date(serverTime * 1000).toLocaleString("es-ES", { timeZone: cfg.timezone || undefined });
+    const a = Math.abs(off);
+    $("#clockOff").textContent = (off > 0 ? "+" : "−") + (a > 86400 ? Math.round(a / 86400) + " días" : a > 3600 ? Math.round(a / 3600) + " h" : Math.round(a / 60) + " min");
+  }
+}
+function fillTimezones() {
+  const sel = $("#tzSel"), mine = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zones = [...new Set([mine, "Europe/Madrid", "Atlantic/Canary", "Europe/Lisbon", "Europe/London", "Europe/Paris", "Europe/Berlin", "UTC", "America/New_York", "America/Mexico_City", "America/Argentina/Buenos_Aires"])];
+  sel.innerHTML = zones.map((z) => `<option value="${z}">${z}${z === mine ? " (este dispositivo)" : ""}</option>`).join("");
+}
+fillTimezones();
+$("#clockFix").onclick = async () => {
+  try {
+    const r = await api("/api/time", { epoch_ms: Date.now(), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    toast(r.changed ? "Hora corregida" : "La hora ya estaba bien"); refreshStatus();
+  } catch (e) { toast("No se pudo: " + e.message); }
+};
+
 async function refreshStatus() {
-  try { const r = await api("/api/status"); renderConfig(r.config); renderStatus(r.status); }
+  try { const r = await api("/api/status"); statusAge = r.status_age_s; renderConfig(r.config); renderClock(r.server_time); renderStatus(r.status); }
   catch (err) { $("#stateText").textContent = "Sin conexión"; }
 }
 async function refreshEvents() { try { renderEvents(await api("/api/events")); } catch (e) {} }
@@ -380,7 +415,7 @@ async function refreshEvents() { try { renderEvents(await api("/api/events")); }
 document.querySelectorAll("[data-k]").forEach((el) => {
   el.addEventListener("change", async () => {
     const k = el.dataset.k;
-    const v = el.type === "checkbox" ? el.checked : Number(el.value);
+    const v = el.type === "checkbox" ? el.checked : el.tagName === "SELECT" ? el.value : Number(el.value);
     try { renderConfig(await api("/api/config", { [k]: v })); toast("Guardado"); } catch (e) { toast("Error: " + e.message); }
   });
 });

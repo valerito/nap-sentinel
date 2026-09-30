@@ -51,7 +51,9 @@ def make_app() -> web.Application:
 
   async def status(request):
     st = config.read_json(config.STATUS_FILE, default={}) or {}
-    return web.json_response({"status": st, "config": config.public(config.load())})
+    now = time.time()  # noqa: TID251
+    return web.json_response({"status": st, "config": config.public(config.load()), "server_time": now,
+                              "status_age_s": round(now - st.get("t", 0), 1) if st.get("t") else None})
 
   async def get_config(request):
     return web.json_response(config.public(config.load()))
@@ -160,6 +162,18 @@ def make_app() -> web.Application:
     ok = outcome == "enviado"
     return web.json_response({"ok": ok, "outcome": outcome, **({} if ok else {"error": outcome})}, status=200 if ok else 502)
 
+  async def set_time(request):
+    from nap_sentinel import timesync
+    data = await _body(request)
+    try:
+      epoch = float(data["epoch_ms"]) / 1000.0
+    except (KeyError, TypeError, ValueError):
+      return web.json_response({"error": "hora no válida"}, status=400)
+    if data.get("timezone"):
+      config.update({"timezone": str(data["timezone"])[:64]})
+    changed = await asyncio.get_running_loop().run_in_executor(None, timesync.set_system_time, epoch, "el panel web")
+    return web.json_response({"ok": True, "changed": changed, "offset_s": round(timesync.clock_offset(epoch), 1)})
+
   async def tg_log(request):
     return web.json_response({"lines": telegram.read_log(80)})
 
@@ -196,6 +210,7 @@ def make_app() -> web.Application:
     web.post("/api/telegram/unlink", tg_unlink),
     web.post("/api/telegram/test", tg_test),
     web.get("/api/telegram/log", tg_log),
+    web.post("/api/time", set_time),
     web.post("/api/events/{eid}/telegram", tg_send_event),
     web.get("/media/{eid}/{name}", media),
   ])

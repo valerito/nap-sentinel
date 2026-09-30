@@ -52,6 +52,11 @@ def api(token: str, method: str, data: dict | None = None, files: dict | None = 
   try:
     r = requests.post(API.format(token=token, method=method), data=data, files=files, timeout=timeout)
     j = r.json()
+    try:
+      from nap_sentinel import timesync
+      timesync.from_http_date(r.headers.get("Date"))
+    except Exception:
+      pass
   except ValueError as e:
     raise TelegramError(f"respuesta no válida de Telegram ({e})") from None
   except requests.RequestException as e:
@@ -71,13 +76,9 @@ def new_link_code() -> str:
   return secrets.token_urlsafe(9).replace("-", "a").replace("_", "b")[:12]
 
 
-def fmt_time(wall: float, tz: str = "Europe/Madrid") -> str:
-  try:
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    return datetime.fromtimestamp(wall, ZoneInfo(tz)).strftime("%d/%m %H:%M:%S")
-  except Exception:
-    return time.strftime("%d/%m %H:%M:%S", time.localtime(wall))
+def fmt_time(wall: float, tz: str | None = None) -> str:
+  from nap_sentinel import timesync
+  return timesync.fmt(wall, tz or config.load()["timezone"])
 
 
 def video_meta(path: Path) -> dict:
