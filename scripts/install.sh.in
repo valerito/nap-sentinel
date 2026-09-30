@@ -58,16 +58,25 @@ base64 -d > "$TMP/payload.tgz" <<'__NAP_SENTINEL_PAYLOAD__'
 __NAP_SENTINEL_PAYLOAD__
 [ "$(sha256sum "$TMP/payload.tgz" | cut -d' ' -f1)" = "@SHA256@" ] || die "Instalador corrupto (checksum)."
 
-# 1) files -> /data/sentinel (keeps your config, power state and backups)
-NEW="$SENTINEL_HOME.new"
-rm -rf "$NEW"; mkdir -p "$NEW"
+# 1) files -> /data/sentinel, replaced item by item. If sentinel is already
+#    running it keeps writing config/state there, so the folder itself is never
+#    deleted (deleting it and moving the new one in races with those writes).
+NEW="$SENTINEL_HOME/.new-$$"
+mkdir -p "$SENTINEL_HOME"
+rm -rf "$SENTINEL_HOME"/.new-* "$SENTINEL_HOME"/.old-* "$SENTINEL_HOME/sentinel.new" "$SENTINEL_HOME.new"
+mkdir -p "$NEW"
 tar xzf "$TMP/payload.tgz" -C "$NEW"
-for keep in config.json state.json continue.sh.bak; do
-  [ -f "$SENTINEL_HOME/$keep" ] && cp -p "$SENTINEL_HOME/$keep" "$NEW/$keep"
+for item in nap_sentinel ensure.sh uninstall.sh hook_block.txt VERSION; do
+  [ -e "$NEW/$item" ] || continue
+  if [ -e "$SENTINEL_HOME/$item" ]; then
+    mv -T "$SENTINEL_HOME/$item" "$SENTINEL_HOME/.old-$$-$item"
+  fi
+  mv -T "$NEW/$item" "$SENTINEL_HOME/$item" || die "no se pudo instalar $item"
 done
-rm -rf "$SENTINEL_HOME"; mv "$NEW" "$SENTINEL_HOME"
-chmod +x "$SENTINEL_HOME"/*.sh
-say "archivos instalados en $SENTINEL_HOME"
+rm -rf "$NEW" "$SENTINEL_HOME"/.old-* 2>/dev/null || true
+chmod +x "$SENTINEL_HOME/ensure.sh" "$SENTINEL_HOME/uninstall.sh"
+[ -f "$SENTINEL_HOME/nap_sentinel/sentineld.py" ] || die "instalación incompleta en $SENTINEL_HOME"
+say "archivos instalados en $SENTINEL_HOME ($(cat "$SENTINEL_HOME/VERSION"))"
 
 # 2) self-check of the python package with openpilot's interpreter
 (cd "$OP" && PYTHONPATH="$SENTINEL_HOME:$OP" "$PY" -c "import nap_sentinel.hook, nap_sentinel.detector, nap_sentinel.recorder, nap_sentinel.exporter, nap_sentinel.webd") \
