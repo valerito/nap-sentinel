@@ -244,6 +244,7 @@ tail -50 /data/sentinel/telegram.log                  # registro de Telegram
 
 | Versión | Cambios |
 |---|---|
+| 1.1.7 | El aviso amarillo de la hora desaparece al sincronizar (antes se quedaba vacío en pantalla). |
 | 1.1.6 | Consumo real en el comma 4 (antes salía siempre 0,0 W). Corrección de la hora del comma (automática con Telegram y botón en la web) y zona horaria configurable. |
 | 1.1.5 | La miniatura de Telegram sale del propio vídeo enviado (gran angular), y el pie indica si se usó la frontal por falta de gran angular. README actualizado. |
 | 1.1.4 | Corrige la conversión a MP4 en el comma (PyAV 13 y `ffmpeg` sin H.264): ya se generan los vídeos ligeros que se mandan a Telegram. Los eventos anteriores se reparan solos. |
