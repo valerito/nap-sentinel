@@ -302,7 +302,10 @@ class TelegramService:
         return "esperando Wi-Fi"
     video = self._pick_video(eid)
     if video is None:
-      st["video_failed"], st["video_error"] = True, "no hay vídeo exportado para este evento"
+      errs = ev.get("export_errors") or {}
+      why = "; ".join(f"{k}: {v}" for k, v in errs.items() if k in ("wide_lq.h264", "qcamera.h264"))
+      st["video_failed"] = True
+      st["video_error"] = "no hay vídeo ligero exportado" + (f" ({why})" if why else "")
       save_tg_state(eid, st)
       return st["video_error"]
 

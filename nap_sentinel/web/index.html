@@ -180,6 +180,8 @@
       <div class="actions" style="margin:10px 0 6px"><button id="tgTest">Enviar prueba</button><button id="tgUnlink" class="danger">Desvincular</button></div>
       <div class="row"><label>Avisos de golpe<small>Mensaje al momento con el motivo y la batería</small></label>
         <label class="switch"><input type="checkbox" data-k="telegram_alerts"><span></span></label></div>
+      <div class="row"><label>Esperar antes de avisar (s)<small>Si arrancas el coche en ese tiempo, no se avisa (eras tú). 0 = al instante</small></label>
+        <input type="number" min="0" max="300" step="5" data-k="telegram_alert_delay_s"></div>
       <div class="row"><label>Enviar vídeo<small>Gran angular en baja calidad (H.264 ≈1 Mbps, ≈7 MB/min)</small></label>
         <label class="switch"><input type="checkbox" data-k="telegram_video"><span></span></label></div>
       <div class="row"><label>Vídeo solo por Wi-Fi<small>Guarda los datos móviles; se envía al conectar (hasta 24 h)</small></label>
@@ -326,7 +328,9 @@ function fillBody(el, e) {
   const body = el.querySelector(".ev-body");
   const cams = CAMS.filter(([f]) => (e.files || {})[f]);
   if (!cams.length) { body.innerHTML = `<p class="muted">${e.status === "failed" ? "No se pudo generar el vídeo." : "El vídeo se está procesando…"}</p>` + actions(e); bindActions(body, e); return; }
-  body.innerHTML = `<div class="tabs">${cams.map(([f, n], i) => `<button data-f="${f}" class="${i ? "" : "on"}">${n}</button>`).join("")}</div>
+  const expErr = e.export_errors && Object.keys(e.export_errors).length
+    ? `<p class="muted" style="font-size:12px;color:var(--warn)">Algunas cámaras no se pudieron exportar: ${Object.entries(e.export_errors).map(([k, v]) => `${k} (${v})`).join(" · ")}</p>` : "";
+  body.innerHTML = expErr + `<div class="tabs">${cams.map(([f, n], i) => `<button data-f="${f}" class="${i ? "" : "on"}">${n}</button>`).join("")}</div>
     <video controls playsinline preload="metadata" src="/media/${e.id}/${cams[0][0]}"></video>
     <p class="muted" style="font-size:12px;margin:6px 0 0">Las vistas HD y de habitáculo son HEVC: se ven en Safari/iOS y en Chrome/Edge con aceleración por hardware.</p>
     ${actions(e, cams[0][0])}`;

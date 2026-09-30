@@ -80,6 +80,7 @@ class Sentinel:
     self.pwrsave_overridden = False
     self.shutdown_requested = False
     self.telegram = TelegramService(log=cloudlog.warning)
+    self.pending_alerts: dict[str, float] = {}   # event id -> monotonic time to send
     self.telegram.start()
 
     config.write_procs(False, False)
@@ -237,7 +238,13 @@ class Sentinel:
     self._set_powersave(False)
     self.pwrsave_overridden = True
     cloudlog.event("sentinel trigger", **trig_d, event_id=self.event["id"])
-    self.telegram.notify_trigger(self.event["id"])
+    delay = self.cfg["telegram_alert_delay_s"] if self.cfg["discard_on_drive"] and trig.reason != "manual" else 0
+    if delay > 0:
+      # give the owner time to start the car: if it starts, the event is
+      # discarded and this alert is never sent
+      self.pending_alerts[self.event["id"]] = now + delay
+    else:
+      self.telegram.notify_trigger(self.event["id"])
 
   def _event_dir(self) -> Path:
     assert self.event is not None
@@ -270,6 +277,7 @@ class Sentinel:
     if ev is None:
       return
     if discard:
+      self.pending_alerts.pop(ev["id"], None)
       alert_msg_id = load_tg_state(ev["id"]).get("alert_msg_id")
       storage.delete_event(ev["id"])
       if alert_msg_id:
@@ -301,7 +309,9 @@ class Sentinel:
       ev["status"] = "exporting"
       storage.save_event(ev)
       d = storage.sentinel_root() / ev["id"]
-      ev["files"] = export_event(d, thumb_at_s=ev.get("trigger_at_s", 0.0), log=cloudlog.warning)
+      errors: dict = {}
+      ev["files"] = export_event(d, thumb_at_s=ev.get("trigger_at_s", 0.0), log=cloudlog.warning, errors=errors)
+      ev["export_errors"] = errors
       ev["status"] = "ready" if ev["files"] else "failed"
     except Exception:
       cloudlog.exception("sentinel export failed")
@@ -412,6 +422,12 @@ class Sentinel:
       if now >= self.record_until:
         self._finish_recording()
         self._set_state(State.ARMED)
+
+    for eid, due in list(self.pending_alerts.items()):
+      if now >= due and not self._onroad():
+        self.pending_alerts.pop(eid)
+        if storage.load_event(eid) is not None:
+          self.telegram.notify_trigger(eid)
 
     self._maybe_export()
     self._check_hook(now)

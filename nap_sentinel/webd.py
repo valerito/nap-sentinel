@@ -22,6 +22,7 @@ from nap_sentinel import config, storage, telegram
 
 PORT = int(os.environ.get("SENTINEL_WEB_PORT", "8090"))
 WEB_DIR = Path(__file__).parent / "web"
+TG_USER_KEYS = ("telegram_alerts", "telegram_alert_delay_s", "telegram_video", "telegram_video_wifi_only")
 MEDIA_FILES = {"road.mp4", "fcamera.mp4", "ecamera.mp4", "dcamera.mp4", "wide_lq.mp4", "thumb.jpg"}
 
 def make_app() -> web.Application:
@@ -60,7 +61,7 @@ def make_app() -> web.Application:
       data = await request.json()
       # Telegram identity is only changed through /api/telegram/*
       data = {k: v for k, v in data.items()
-              if not k.startswith("telegram_") or k in ("telegram_alerts", "telegram_video", "telegram_video_wifi_only")}
+              if not k.startswith("telegram_") or k in TG_USER_KEYS}
       data.pop("web_password", None)
       if "password" in data:
         data["web_password"] = str(data.pop("password") or "")

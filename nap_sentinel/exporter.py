@@ -104,14 +104,18 @@ def make_thumbnail(video: Path, out_jpg: Path, at_s: float = 0.0) -> bool:
   return False
 
 
-def export_event(event_dir: Path, thumb_at_s: float = 0.0, keep_raw: bool = False, log=print) -> dict[str, int]:
-  """Returns {mp4 name: size}. Raw files are removed once converted."""
+def export_event(event_dir: Path, thumb_at_s: float = 0.0, keep_raw: bool = False, log=print,
+                 errors: dict | None = None) -> dict[str, int]:
+  """Returns {mp4 name: size}. Raw files are removed once converted.
+  Per-stream problems are stored in `errors` ({raw name: reason})."""
   produced: dict[str, int] = {}
+  errors = errors if errors is not None else {}
   for raw_name, (mp4, fmt) in OUTPUTS.items():
     raw = event_dir / raw_name
     if not raw.is_file():
       continue
     if raw.stat().st_size == 0:  # stream never delivered a keyframe
+      errors[raw_name] = "sin fotogramas (el codificador no envió ningún fotograma clave)"
       raw.unlink(missing_ok=True)
       Path(str(raw) + ".ts").unlink(missing_ok=True)
       continue
@@ -122,6 +126,7 @@ def export_event(event_dir: Path, thumb_at_s: float = 0.0, keep_raw: bool = Fals
         raw.unlink(missing_ok=True)
         Path(str(raw) + ".ts").unlink(missing_ok=True)
     except Exception as e:  # keep going with the other cameras
+      errors[raw_name] = f"{type(e).__name__}: {e}"[:300]
       log(f"sentinel export {raw_name} failed: {e}")
   src = "road.mp4" if "road.mp4" in produced else next(iter(produced), None)
   if src:

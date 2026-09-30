@@ -41,6 +41,7 @@ SCHEMA: dict[str, tuple] = {
   "telegram_link_code": ("", str, None, None),
   "telegram_link_expires": (0.0, float, None, None),
   "telegram_alerts": (True, bool, None, None),
+  "telegram_alert_delay_s": (30, int, 0, 300),    # wait, so starting the car cancels it
   "telegram_video": (True, bool, None, None),     # low-quality wide camera clip
   "telegram_video_wifi_only": (False, bool, None, None),
 }
