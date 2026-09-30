@@ -31,6 +31,67 @@ WAKE_TIMEOUT_S = 60
 MAX_FLASHES_PER_HOUR = 6
 
 
+# ── "Iniciar sesión con Tesla" (Owner API, OAuth2 + PKCE) ─────────
+# Same flow the token apps and TeslaPy use: the user logs in on Tesla's own
+# page (Sentinel never sees the password). Tesla then redirects to
+# auth.tesla.com/void/callback?code=..., a "page not found" the user copies
+# back into the panel; the code is exchanged here for the tokens.
+AUTHORIZE_URL = "https://auth.tesla.com/oauth2/v3/authorize"
+VOID_CALLBACK = "https://auth.tesla.com/void/callback"
+LOGIN_TTL_S = 15 * 60
+
+
+def login_start() -> dict:
+  import base64
+  import hashlib
+  import secrets
+  import urllib.parse
+  verifier = base64.urlsafe_b64encode(secrets.token_bytes(64)).rstrip(b"=").decode()
+  challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+  state = secrets.token_urlsafe(16)
+  params = {"client_id": OWNER_CLIENT_ID, "code_challenge": challenge, "code_challenge_method": "S256",
+            "redirect_uri": VOID_CALLBACK, "response_type": "code", "scope": "openid email offline_access",
+            "state": state, "locale": "es-ES", "prompt": "login"}
+  return {"url": f"{AUTHORIZE_URL}?{urllib.parse.urlencode(params)}", "verifier": verifier, "state": state,
+          "expires": time.time() + LOGIN_TTL_S}  # noqa: TID251
+
+
+def parse_callback(url: str) -> dict:
+  """Returns {'code', 'state', 'token_url'} from the pasted void/callback URL."""
+  import urllib.parse
+  url = (url or "").strip()
+  q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+  code = (q.get("code") or [""])[0]
+  if not code:
+    raise TeslaError("No encuentro el código en esa dirección. Copia la URL completa de la página final "
+                     "(empieza por https://auth.tesla.com/void/callback?code=…)")
+  issuer = (q.get("issuer") or [""])[0]
+  host = "auth.tesla.cn" if "tesla.cn" in issuer else "auth.tesla.com"
+  return {"code": code, "state": (q.get("state") or [""])[0], "token_url": f"https://{host}/oauth2/v3/token"}
+
+
+def login_finish(callback_url: str, verifier: str, state: str, session=None) -> dict:
+  """Exchanges the code for tokens. Returns {'access_token', 'refresh_token', 'expires_in'}."""
+  import requests
+  cb = parse_callback(callback_url)
+  if state and cb["state"] and cb["state"] != state:
+    raise TeslaError("Esa dirección es de otro inicio de sesión. Vuelve a pulsar «Iniciar sesión con Tesla».")
+  s = session or _session()
+  body = {"grant_type": "authorization_code", "client_id": OWNER_CLIENT_ID, "code": cb["code"],
+          "code_verifier": verifier, "redirect_uri": VOID_CALLBACK}
+  try:
+    r = s.post(cb["token_url"], json=body, timeout=20)
+  except requests.RequestException as e:
+    raise TeslaError(f"sin conexión con Tesla ({type(e).__name__})") from None
+  if r.status_code != 200:
+    raise TeslaError(f"Tesla no aceptó el código (HTTP {r.status_code}). Los códigos caducan en unos minutos: "
+                     "vuelve a iniciar sesión.", r.status_code)
+  j = r.json()
+  if not j.get("refresh_token"):
+    raise TeslaError("Tesla no devolvió un token de refresco")
+  return j
+
+
 class TeslaError(Exception):
   def __init__(self, msg: str, status: int | None = None):
     super().__init__(msg)

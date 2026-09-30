@@ -149,3 +149,77 @@ def test_web_connect_flow(cfg, monkeypatch):
       r = await (await c.post("/api/tesla/disconnect")).json()
       assert not r["tesla_connected"] and config.load()["tesla_refresh_token"] == ""
   asyncio.run(go())
+
+
+def test_login_start_is_valid_pkce():
+  import base64
+  import hashlib
+  import urllib.parse
+  st = tesla.login_start()
+  q = urllib.parse.parse_qs(urllib.parse.urlparse(st["url"]).query)
+  assert st["url"].startswith(tesla.AUTHORIZE_URL)
+  assert q["client_id"] == ["ownerapi"] and q["redirect_uri"] == [tesla.VOID_CALLBACK]
+  assert q["code_challenge_method"] == ["S256"] and q["state"] == [st["state"]]
+  expect = base64.urlsafe_b64encode(hashlib.sha256(st["verifier"].encode()).digest()).rstrip(b"=").decode()
+  assert q["code_challenge"] == [expect]
+  assert 43 <= len(st["verifier"]) <= 128
+
+
+def test_parse_callback():
+  cb = tesla.parse_callback("https://auth.tesla.com/void/callback?code=abc123&state=xyz&issuer=https%3A%2F%2Fauth.tesla.com%2Foauth2%2Fv3")
+  assert cb == {"code": "abc123", "state": "xyz", "token_url": "https://auth.tesla.com/oauth2/v3/token"}
+  assert tesla.parse_callback("https://auth.tesla.com/void/callback?code=c&issuer=https://auth.tesla.cn/oauth2/v3")["token_url"].startswith(
+    "https://auth.tesla.cn")
+  with pytest.raises(tesla.TeslaError, match="código"):
+    tesla.parse_callback("https://auth.tesla.com/void/callback?error=login_cancelled")
+
+
+class LoginSession(FakeSession):
+  def post(self, url, data=None, json=None, timeout=None):
+    if json is not None:
+      self.calls.append(("CODE", url, dict(json)))
+      if json["code"] != "good-code" or json["code_verifier"] != self.expect_verifier:
+        return Resp(400, {"error": "invalid_grant"})
+      return Resp(200, {"access_token": "at-login", "refresh_token": "rt-good", "expires_in": 28800})
+    return super().post(url, data=data, timeout=timeout)
+
+
+def test_login_finish_exchanges_code(cfg):
+  s = LoginSession()
+  s.expect_verifier = "ver"
+  tok = tesla.login_finish("https://auth.tesla.com/void/callback?code=good-code&state=st", "ver", "st", session=s)
+  assert tok["refresh_token"] == "rt-good"
+  assert s.calls[0][2]["grant_type"] == "authorization_code" and s.calls[0][2]["redirect_uri"] == tesla.VOID_CALLBACK
+  with pytest.raises(tesla.TeslaError, match="otro inicio"):
+    tesla.login_finish("https://auth.tesla.com/void/callback?code=good-code&state=OTHER", "ver", "st", session=s)
+  with pytest.raises(tesla.TeslaError, match="no aceptó"):
+    tesla.login_finish("https://auth.tesla.com/void/callback?code=bad&state=st", "ver", "st", session=s)
+
+
+def test_web_login_flow(cfg, monkeypatch):
+  import asyncio
+  from aiohttp.test_utils import TestClient, TestServer
+  from nap_sentinel import webd
+  config.update({"tesla_refresh_token": "", "tesla_vehicle_id": ""})
+  holder = {}
+
+  def fake_session():
+    s = LoginSession()
+    s.expect_verifier = config.load()["tesla_login_verifier"]
+    holder["s"] = s
+    return s
+  monkeypatch.setattr(tesla, "_session", fake_session)
+
+  async def go():
+    async with TestClient(TestServer(webd.make_app())) as c:
+      assert (await c.post("/api/tesla/login/finish", json={"url": "x"})).status == 409   # not started
+      r = await (await c.post("/api/tesla/login/start")).json()
+      assert r["url"].startswith(tesla.AUTHORIZE_URL)
+      state = config.load()["tesla_login_state"]
+      assert "tesla_login_verifier" not in (await (await c.get("/api/config")).json())
+      r = await c.post("/api/tesla/login/finish", json={"url": f"https://auth.tesla.com/void/callback?code=good-code&state={state}"})
+      body = await r.json()
+      assert r.status == 200 and body["config"]["tesla_connected"] and body["vehicles"][0]["name"] == "Sam"
+      c2 = config.load()
+      assert c2["tesla_backend"] == "owner" and c2["tesla_refresh_token"].startswith("rt-") and c2["tesla_login_verifier"] == ""
+  asyncio.run(go())

@@ -52,6 +52,9 @@ SCHEMA: dict[str, tuple] = {
   "tesla_client_id": ("", str, None, None),        # fleet only
   "tesla_base_url": ("", str, None, None),         # fleet only (region URL or proxy)
   "tesla_auth_url": ("", str, None, None),         # fleet only, optional
+  "tesla_login_verifier": ("", str, None, None),   # PKCE, only during "Iniciar sesión con Tesla"
+  "tesla_login_state": ("", str, None, None),
+  "tesla_login_expires": (0.0, float, None, None),
   "tesla_vehicle_id": ("", str, None, None),
   "tesla_vehicle_name": ("", str, None, None),
   "tesla_flash": (False, bool, None, None),
@@ -66,7 +69,8 @@ SCHEMA: dict[str, tuple] = {
 CHOICES = {"tesla_backend": ("owner", "fleet"), "tesla_flash_when": ("night", "always"),
            "location_source": ("gps", "manual")}
 
-SECRETS = ("web_password", "telegram_token", "telegram_link_code", "tesla_refresh_token", "tesla_access_token")
+SECRETS = ("web_password", "telegram_token", "telegram_link_code", "tesla_refresh_token", "tesla_access_token",
+           "tesla_login_verifier", "tesla_login_state")
 
 
 def config_path() -> Path:

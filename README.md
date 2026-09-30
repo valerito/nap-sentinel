@@ -137,14 +137,21 @@ El token del bot se guarda solo en el comma (`/data/sentinel/config.json`). No a
 
 Al detectar un evento de noche, sentinel pide al coche un **destello de luces** a través de la API de Tesla, igual que el botón de la app. En el Model S de 2012–2014 las luces se quedan encendidas un rato, así que la grabación nocturna se ve mucho mejor. No toca el bus CAN del coche.
 
-**Conectar**, en el panel web, sección **Luces (Tesla)**:
+**Conectar**, en el panel web, sección **Luces (Tesla)**. Es el mismo sistema que usan TeslaMate y las apps de tokens:
 
-1. Elige el **tipo de API**:
-   - **Owner API** (la de siempre): basta con un **token de refresco**. Tesla la está retirando cuenta a cuenta, pero en muchas cuentas sigue funcionando. Sentinel renueva el token con TLS 1.3, que es lo que ahora exige Tesla.
-   - **Fleet API / proxy** (la oficial): URL base (región o proxy), `client_id` de tu app de desarrollador y token de refresco. Si tu proxy te da un token de acceso fijo, también sirve.
-2. Pega el **token de refresco**. Se genera con una app de tokens de Tesla. **Nunca pongas tu contraseña de Tesla**: sentinel no la pide ni la guarda.
-3. Pulsa **Conectar**. Si la cuenta tiene varios coches, elige el tuyo.
-4. Pulsa **💡 Destello de prueba**.
+1. Pulsa **Iniciar sesión con Tesla**. Se abre la web oficial de Tesla: inicia sesión allí, con tu contraseña y, si lo tienes, el código 2FA. Sentinel nunca ve tu contraseña.
+2. Al terminar, Tesla muestra una página que dice **«Page Not Found»**. Es normal: es la dirección a la que Tesla devuelve el código de acceso. Copia la **dirección completa** de esa página (empieza por `https://auth.tesla.com/void/callback?code=…`), pégala en el panel y pulsa **Terminar**.
+   - El código caduca en unos minutos: pégalo nada más verlo.
+3. Si la cuenta tiene varios coches, elige el tuyo. Después pulsa **💡 Destello de prueba**.
+
+¿Por qué hay que copiar una dirección, en vez de volver solo? Tesla solo devuelve el código a direcciones registradas. TeslaMate o MyTeslaMate tienen su propio dominio registrado en Tesla. El comma está en tu red local, sin dominio propio, así que se usa la dirección oficial de Tesla para apps sin servidor, y ese último paso es manual.
+
+**Otras formas de conectar** (en el mismo panel):
+- **Token de refresco** de la Owner API, generado con una app de tokens de Tesla.
+- **Fleet API**: la URL de tu región o de tu proxy, el `client_id` de tu app de desarrollador y el token de refresco.
+- **MyTeslaMate**: el enlace *Rellenar su URL* pone `https://api.myteslamate.com`. Luego pega el token de MyTeslaMate en *Token de acceso fijo*. Allí despertar el coche consume más créditos que una orden normal.
+
+**Owner API o Fleet API.** *Iniciar sesión con Tesla* usa la **Owner API**. Tesla la está retirando cuenta a cuenta, pero en muchas cuentas sigue funcionando. Sentinel usa TLS 1.3, que es lo que ahora exige Tesla para dar tokens de Owner API. Si el destello de prueba devuelve 403, tu cuenta ya no la admite: usa Fleet API o MyTeslaMate.
 
 **Cómo funciona:**
 
@@ -276,6 +283,7 @@ tail -50 /data/sentinel/telegram.log                  # registro de Telegram
 
 | Versión | Cambios |
 |---|---|
+| 1.3.0 | «Iniciar sesión con Tesla» desde el panel (inicio de sesión oficial de Tesla con PKCE, como TeslaMate), sin tener que generar tokens a mano. Acceso directo para MyTeslaMate. |
 | 1.2.0 | Destello de luces con la API de Tesla (Owner API o Fleet API) en los eventos nocturnos, conectado desde el panel web; cálculo de día/noche con el último GPS del comma. |
 | 1.1.7 | El aviso amarillo de la hora desaparece al sincronizar (antes se quedaba vacío en pantalla). |
 | 1.1.6 | Consumo real en el comma 4 (antes salía siempre 0,0 W). Corrección de la hora del comma (automática con Telegram y botón en la web) y zona horaria configurable. |

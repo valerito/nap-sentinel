@@ -169,17 +169,28 @@
     <h2>Luces (Tesla)</h2>
     <div id="teslaSetup">
       <p class="muted" style="margin-top:0">Hace un destello de luces con la API de Tesla cuando hay un evento (por defecto solo de noche) para que la grabación se vea mejor.</p>
+      <ol class="steps">
+        <li><button class="primary" id="teslaLogin">Iniciar sesión con Tesla</button><br>
+          <small class="muted">Se abre la web oficial de Tesla; tu contraseña se escribe allí, nunca aquí.</small></li>
+        <li>Al terminar, Tesla muestra una página que dice <b>«Page Not Found»</b>: es normal. Copia su <b>dirección completa</b>
+          (empieza por <code>https://auth.tesla.com/void/callback?code=</code>) y pégala aquí:
+          <div class="inline" style="margin-top:6px"><input id="teslaCallback" placeholder="https://auth.tesla.com/void/callback?code=…" autocomplete="off">
+          <button class="primary" id="teslaFinish">Terminar</button></div></li>
+      </ol>
+      <details style="margin-top:6px"><summary>Otras formas de conectar (token, Fleet API, MyTeslaMate)</summary>
       <div class="row"><label>Tipo de API<small>Owner API: la de siempre. Fleet API: la oficial o un proxy.</small></label>
         <select id="teslaBackend"><option value="owner">Owner API</option><option value="fleet">Fleet API / proxy</option></select></div>
       <div class="row"><label>Token de refresco<small>Genéralo con una app de tokens de Tesla. Nunca pongas aquí tu contraseña.</small></label>
         <input type="password" id="teslaRefresh" placeholder="eyJ…" autocomplete="off" style="width:180px"></div>
       <div id="teslaFleet" hidden>
+        <p class="muted" style="font-size:12px">¿Usas <b>MyTeslaMate</b>? <a href="#" id="teslaMtm">Rellenar su URL</a> y pega su token en «Token de acceso fijo».</p>
         <div class="row"><label>URL base<small>Región o proxy (vacío = Europa)</small></label><input id="teslaBase" placeholder="https://fleet-api.prd.eu.vn.cloud.tesla.com" style="width:180px"></div>
         <div class="row"><label>client_id<small>De tu app de desarrollador</small></label><input id="teslaClient" style="width:180px"></div>
         <div class="row"><label>URL de token (opcional)</label><input id="teslaAuth" placeholder="fleet-auth por defecto" style="width:180px"></div>
         <div class="row"><label>Token de acceso fijo (opcional)<small>Solo si tu proxy te da uno en vez del de refresco</small></label><input type="password" id="teslaAccess" style="width:180px"></div>
       </div>
-      <div class="actions"><button class="primary" id="teslaConnect">Conectar</button></div>
+      <div class="actions"><button id="teslaConnect">Conectar con token</button></div>
+      </details>
     </div>
     <div id="teslaOn" hidden>
       <p style="margin:0">🚗 Conectado: <b id="teslaCar"></b> <span class="muted" id="teslaApi"></span></p>
@@ -476,13 +487,7 @@ $("#pwBtn").onclick = async () => {
   catch (e) { toast("Error: " + e.message); }
 };
 $("#teslaBackend").onchange = () => { $("#teslaFleet").hidden = $("#teslaBackend").value !== "fleet"; };
-$("#teslaConnect").onclick = async () => {
-  const b = $("#teslaConnect"); b.disabled = true; b.textContent = "Conectando…";
-  try {
-    const r = await api("/api/tesla/connect", { backend: $("#teslaBackend").value, refresh_token: $("#teslaRefresh").value.trim(),
-      base_url: $("#teslaBase").value.trim(), client_id: $("#teslaClient").value.trim(), auth_url: $("#teslaAuth").value.trim(),
-      access_token: $("#teslaAccess").value.trim() });
-    $("#teslaRefresh").value = ""; $("#teslaAccess").value = "";
+function afterTeslaConnect(r) {
     renderConfig(r.config);
     const sel = $("#teslaCars");
     sel.innerHTML = r.vehicles.map((v) => `<option value="${v.id}" data-name="${(v.name || "").replace(/"/g, "")}">${v.name} (${v.state || "?"})</option>`).join("");
@@ -491,8 +496,28 @@ $("#teslaConnect").onclick = async () => {
     if (r.vehicles.length > 1) { toast("Elige el coche"); sel.onchange(); }
     else toast(r.vehicles.length ? `Conectado: ${r.vehicles[0].name}` : "Conectado, pero la cuenta no tiene coches");
     refreshNight();
-  } catch (e) { toast(e.message); } finally { b.disabled = false; b.textContent = "Conectar"; }
+}
+$("#teslaConnect").onclick = async () => {
+  const b = $("#teslaConnect"); b.disabled = true; b.textContent = "Conectando…";
+  try {
+    const r = await api("/api/tesla/connect", { backend: $("#teslaBackend").value, refresh_token: $("#teslaRefresh").value.trim(),
+      base_url: $("#teslaBase").value.trim(), client_id: $("#teslaClient").value.trim(), auth_url: $("#teslaAuth").value.trim(),
+      access_token: $("#teslaAccess").value.trim() });
+    $("#teslaRefresh").value = ""; $("#teslaAccess").value = "";
+    afterTeslaConnect(r);
+  } catch (e) { toast(e.message); } finally { b.disabled = false; b.textContent = "Conectar con token"; }
 };
+$("#teslaLogin").onclick = async () => {
+  const w = window.open("about:blank", "_blank");   // open now (user gesture) so popup blockers allow it
+  try { const r = await api("/api/tesla/login/start", {}); if (w) w.location = r.url; else location.href = r.url; $("#teslaCallback").focus(); }
+  catch (e) { if (w) w.close(); toast(e.message); }
+};
+$("#teslaFinish").onclick = async () => {
+  const b = $("#teslaFinish"); b.disabled = true; b.textContent = "Conectando…";
+  try { afterTeslaConnect(await api("/api/tesla/login/finish", { url: $("#teslaCallback").value.trim() })); $("#teslaCallback").value = ""; }
+  catch (e) { toast(e.message); } finally { b.disabled = false; b.textContent = "Terminar"; }
+};
+$("#teslaMtm").onclick = (e) => { e.preventDefault(); $("#teslaBase").value = "https://api.myteslamate.com"; $("#teslaAccess").focus(); };
 $("#teslaCars").onchange = async () => {
   const o = $("#teslaCars").selectedOptions[0];
   if (o) renderConfig(await api("/api/tesla/vehicle", { id: o.value, name: o.dataset.name }));
