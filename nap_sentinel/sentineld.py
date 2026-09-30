@@ -28,9 +28,9 @@ from openpilot.common.swaglog import cloudlog
 
 from nap_sentinel import config, storage
 from nap_sentinel.detector import MotionDetector, Trigger
-from nap_sentinel.exporter import export_event
+from nap_sentinel.exporter import OUTPUTS, export_event
 from nap_sentinel.recorder import Recorder
-from nap_sentinel.telegram import TelegramService, load_tg_state
+from nap_sentinel.telegram import TelegramService, load_tg_state, save_tg_state
 
 ThermalStatus = log.DeviceState.ThermalStatus
 
@@ -106,9 +106,16 @@ class Sentinel:
 
   def _recover_interrupted_events(self) -> None:
     for ev in storage.list_events():
-      if ev.get("status") in ("recording", "exporting"):
+      d = storage.sentinel_root() / ev["id"]
+      leftover_raw = any((d / raw).is_file() and (d / raw).stat().st_size > 0 for raw in OUTPUTS)
+      if ev.get("status") in ("recording", "exporting") or (leftover_raw and ev.get("status") in ("ready", "failed")):
+        # interrupted, or a stream an older version could not convert: try again
         ev["status"] = "pending_export"
         storage.save_event(ev)
+        st = load_tg_state(ev["id"])
+        if st.pop("video_failed", None) is not None:
+          st.pop("video_error", None)
+          save_tg_state(ev["id"], st)
 
   def _wanted_services(self) -> list[str]:
     s = ["qRoadEncodeData"]
@@ -310,7 +317,9 @@ class Sentinel:
       storage.save_event(ev)
       d = storage.sentinel_root() / ev["id"]
       errors: dict = {}
-      ev["files"] = export_event(d, thumb_at_s=ev.get("trigger_at_s", 0.0), log=cloudlog.warning, errors=errors)
+      export_event(d, thumb_at_s=ev.get("trigger_at_s", 0.0), log=cloudlog.warning, errors=errors)
+      # everything playable in the folder (also cameras converted on an earlier pass)
+      ev["files"] = {mp4: (d / mp4).stat().st_size for mp4, _ in OUTPUTS.values() if (d / mp4).is_file()}
       ev["export_errors"] = errors
       ev["status"] = "ready" if ev["files"] else "failed"
     except Exception:

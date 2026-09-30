@@ -58,8 +58,10 @@ def test_ring_buffer_zero_keeps_current_gop():
 
 
 @pytest.mark.parametrize("codec,raw,mp4", [("libx264", "qcamera.h264", "road.mp4"), ("libx265", "fcamera.hevc", "fcamera.mp4")])
-def test_prerecord_then_live_export(tmp_path, codec, raw, mp4):
+def test_prerecord_then_live_export(tmp_path, monkeypatch, codec, raw, mp4):
+  from nap_sentinel import exporter
   from nap_sentinel.exporter import export_event
+  monkeypatch.setattr(exporter, "_ffmpeg_bin", lambda: None)   # PyAV path only, like on a comma without h264 in ffmpeg
   pk = _packets(codec, 200, gap_after=150)   # 1 s dropout in the live part
   rb = RingBuffer(2.0)
   for p in pk[:100]:

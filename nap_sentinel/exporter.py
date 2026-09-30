@@ -38,6 +38,21 @@ def _timestamps(raw: Path) -> list[int]:
     return []
 
 
+def _stream_from_template(out, template):
+  # PyAV >= 14 has add_stream_from_template(); older versions (comma ships
+  # PyAV 13) take add_stream(template=...)
+  if hasattr(out, "add_stream_from_template"):
+    return out.add_stream_from_template(template)
+  return out.add_stream(template=template)
+
+
+def _ffmpeg_bin() -> str | None:
+  for cand in (shutil.which("ffmpeg"), "/usr/local/venv/bin/ffmpeg", "/usr/bin/ffmpeg"):
+    if cand and os.path.isfile(cand) and os.access(cand, os.X_OK):
+      return cand
+  return None
+
+
 def _remux_pyav(raw: Path, out_path: Path, fmt: str) -> None:
   import av
 
@@ -47,7 +62,7 @@ def _remux_pyav(raw: Path, out_path: Path, fmt: str) -> None:
     use_ts = len(ts) == len(packets) and len(ts) > 1 and all(b > a for a, b in zip(ts, ts[1:], strict=False))
     out = av.open(str(out_path), "w", format="mp4", options={"movflags": "+faststart"})
     try:
-      ost = out.add_stream_from_template(inp.streams.video[0])
+      ost = _stream_from_template(out, inp.streams.video[0])
       if fmt == "hevc":
         ost.codec_tag = "hvc1"  # Safari / iOS
       tb = Fraction(1, 1000)
@@ -66,14 +81,16 @@ def _remux_pyav(raw: Path, out_path: Path, fmt: str) -> None:
 
 
 def _remux_ffmpeg(raw: Path, out_path: Path, fmt: str) -> None:
-  ffmpeg = shutil.which("ffmpeg")
+  ffmpeg = _ffmpeg_bin()
   if ffmpeg is None:
     raise RuntimeError("ffmpeg not available")
   cmd = [ffmpeg, "-y", "-loglevel", "error", "-r", str(CAMERA_FPS), "-f", fmt, "-i", str(raw), "-c", "copy"]
   if fmt == "hevc":
     cmd += ["-tag:v", "hvc1"]
   cmd += ["-movflags", "+faststart", str(out_path)]
-  subprocess.run(cmd, check=True, timeout=600)
+  r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+  if r.returncode != 0:
+    raise RuntimeError(f"ffmpeg: {(r.stderr or '').strip().splitlines()[-1:] or r.returncode}")
 
 
 def remux(raw: Path, out_path: Path, fmt: str) -> None:
@@ -81,9 +98,12 @@ def remux(raw: Path, out_path: Path, fmt: str) -> None:
   try:
     try:
       _remux_pyav(raw, tmp, fmt)
-    except Exception:
+    except Exception as e_av:
       tmp.unlink(missing_ok=True)
-      _remux_ffmpeg(raw, tmp, fmt)
+      try:
+        _remux_ffmpeg(raw, tmp, fmt)
+      except Exception as e_ff:
+        raise RuntimeError(f"PyAV: {type(e_av).__name__}: {e_av} | {e_ff}") from None
     os.replace(tmp, out_path)
   finally:
     tmp.unlink(missing_ok=True)
