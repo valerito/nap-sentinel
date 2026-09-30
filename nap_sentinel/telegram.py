@@ -178,6 +178,8 @@ def alert_text(ev: dict, status: dict) -> str:
   lines = [f"<b>{html.escape(reason)}</b>{detail}", f"🕒 {fmt_time(ev.get('wall_time', time.time()))}"]  # noqa: TID251
   if status.get("voltage"):
     lines.append(f"🔋 {status['voltage']:.2f} V")
+  if ev.get("lights") == "solicitado":
+    lines.append("💡 Destello de luces enviado al coche")
   lines.append("🎥 Grabando… te envío el vídeo al terminar." if config.load()["telegram_video"] else "🎥 Grabando.")
   return "\n".join(lines)
 

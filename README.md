@@ -9,6 +9,7 @@ Si alguien golpea, levanta o balancea el coche, sentinel graba las cámaras (fro
 - Se instala **encima de tu NAP actual** con una línea. No hace falta cambiar de rama ni compilar.
 - **Pre-grabación** opcional: el vídeo empieza unos segundos **antes** del golpe.
 - **Telegram**: aviso con el motivo y la fuerza, vídeo de la gran angular y comandos como `/grabar` o `/estado`.
+- **Destello de luces con la API de Tesla** al detectar un evento de noche, para que la grabación se vea mejor.
 - **Si eras tú**, no hay aviso: al arrancar el coche durante la grabación, el evento se descarta.
 - **Sobrevive a las actualizaciones de NAP.** Mientras conduces no cambia nada.
 
@@ -20,6 +21,7 @@ Si alguien golpea, levanta o balancea el coche, sentinel graba las cámaras (fro
 - [Primeros pasos](#primeros-pasos)
 - [Modos de vigilancia](#modos-de-vigilancia)
 - [Avisos por Telegram](#avisos-por-telegram)
+- [Destello de luces (API de Tesla)](#destello-de-luces-api-de-tesla)
 - [Panel web](#panel-web)
 - [Qué detecta](#qué-detecta)
 - [Ajustes](#ajustes)
@@ -131,6 +133,30 @@ El token del bot se guarda solo en el comma (`/data/sentinel/config.json`). No a
 
 <br clear="right">
 
+## Destello de luces (API de Tesla)
+
+Al detectar un evento de noche, sentinel pide al coche un **destello de luces** a través de la API de Tesla, igual que el botón de la app. En el Model S de 2012–2014 las luces se quedan encendidas un rato, así que la grabación nocturna se ve mucho mejor. No toca el bus CAN del coche.
+
+**Conectar**, en el panel web, sección **Luces (Tesla)**:
+
+1. Elige el **tipo de API**:
+   - **Owner API** (la de siempre): basta con un **token de refresco**. Tesla la está retirando cuenta a cuenta, pero en muchas cuentas sigue funcionando. Sentinel renueva el token con TLS 1.3, que es lo que ahora exige Tesla.
+   - **Fleet API / proxy** (la oficial): URL base (región o proxy), `client_id` de tu app de desarrollador y token de refresco. Si tu proxy te da un token de acceso fijo, también sirve.
+2. Pega el **token de refresco**. Se genera con una app de tokens de Tesla. **Nunca pongas tu contraseña de Tesla**: sentinel no la pide ni la guarda.
+3. Pulsa **Conectar**. Si la cuenta tiene varios coches, elige el tuyo.
+4. Pulsa **💡 Destello de prueba**.
+
+**Cómo funciona:**
+
+- **Cuándo destella**: *Solo de noche* (por defecto) o *Siempre*. La grabación manual solo destella si activas *También en grabación manual*.
+- **Qué es "de noche"**: se calcula con la altura del sol (por debajo de −4°) en la ubicación del coche.
+  - La ubicación sale del **último GPS del comma**, que se guarda al conducir, o de una latitud/longitud manual (por defecto, Madrid).
+  - El panel muestra si ahora es de día o de noche.
+- **Si el coche está dormido**, primero se despierta. El destello llega a los **10–40 s** del golpe. Con pre-grabación, el vídeo incluye lo anterior.
+- **Límites**: un destello por evento y como máximo 6 por hora.
+- **Avisos**: el aviso de Telegram indica "💡 Destello de luces enviado". El resultado queda en el panel.
+- **Token**: Tesla lo rota en cada uso y sentinel guarda siempre el último. Los tokens solo están en `/data/sentinel/config.json`. No aparecen en la web ni en los registros.
+
 ## Panel web
 
 `http://IP_DEL_COMMA:8090`, desde cualquier dispositivo en la misma red.
@@ -172,6 +198,11 @@ Se cambian en la web o en `/data/sentinel/config.json`.
 | `low_voltage` | 11.8 | Por debajo, el comma se apaga para proteger la batería de 12 V |
 | `max_parked_hours` | 0 | Apagar tras X horas aparcado (0 = nunca) |
 | `web_password` | "" | Si se define, la web pide contraseña (cualquier usuario) |
+| `tesla_flash` | false | Destello de luces con la API de Tesla en los eventos |
+| `tesla_flash_when` | night | `night` (solo de noche) o `always` |
+| `tesla_flash_manual` | false | Destellar también en las grabaciones manuales |
+| `location_source` | gps | `gps` (último GPS del comma) o `manual` (`latitude`/`longitude`) |
+| `night_sun_elevation` | -4 | Altura del sol (°) por debajo de la cual se considera de noche |
 | `timezone` | Europe/Madrid | Zona horaria de los avisos de Telegram y los nombres de eventos |
 | `telegram_alerts` | true | Enviar el aviso de evento |
 | `telegram_alert_delay_s` | 30 | Segundos de espera antes de avisar; si arrancas en ese tiempo no se avisa (0 = inmediato) |
@@ -229,6 +260,7 @@ tail -50 /data/sentinel/telegram.log                  # registro de Telegram
 | Telegram no manda el vídeo | Icono ✈️⚠️ del evento o *Registro de envíos*. `event.json` → `export_errors` indica qué cámara no se pudo convertir. |
 | No recibo el aviso | ¿Arrancaste el coche en los primeros 30 s? Entonces se descartó a propósito. Revisa *Esperar antes de avisar*. |
 | Demasiados avisos | Baja la sensibilidad o sube *Esperar antes de avisar*. |
+| El destello no funciona | Prueba **💡 Destello de prueba** en el panel; el error dice si es el token (403: tu cuenta ya no admite Owner API, prueba Fleet API), el coche sin conexión o que no despertó. |
 | Consumo "0,0 W" o "–" | Actualiza a 1.1.6+. Pasa el ratón por el valor para ver de dónde sale la medida. |
 | Horas o nombres de eventos con fecha rara | La hora del comma está mal: usa el botón del aviso amarillo de la web (ver [Hora y zona horaria](#hora-y-zona-horaria)). |
 | El instalador muestra una versión vieja | Caché de GitHub: espera un par de minutos y repite. |
@@ -244,6 +276,7 @@ tail -50 /data/sentinel/telegram.log                  # registro de Telegram
 
 | Versión | Cambios |
 |---|---|
+| 1.2.0 | Destello de luces con la API de Tesla (Owner API o Fleet API) en los eventos nocturnos, conectado desde el panel web; cálculo de día/noche con el último GPS del comma. |
 | 1.1.7 | El aviso amarillo de la hora desaparece al sincronizar (antes se quedaba vacío en pantalla). |
 | 1.1.6 | Consumo real en el comma 4 (antes salía siempre 0,0 W). Corrección de la hora del comma (automática con Telegram y botón en la web) y zona horaria configurable. |
 | 1.1.5 | La miniatura de Telegram sale del propio vídeo enviado (gran angular), y el pie indica si se usó la frontal por falta de gran angular. README actualizado. |
@@ -273,3 +306,4 @@ Archivos:
 - `webd.py` y `web/index.html`: panel web.
 - `config.py` y `storage.py`: ajustes, estado compartido y eventos.
 - `timesync.py`: corrección de la hora del comma y zona horaria.
+- `tesla.py`: API de Tesla (Owner/Fleet, token rotativo, despertar, destello) y cálculo de día/noche.

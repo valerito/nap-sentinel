@@ -45,9 +45,28 @@ SCHEMA: dict[str, tuple] = {
   "telegram_alert_delay_s": (30, int, 0, 300),    # wait, so starting the car cancels it
   "telegram_video": (True, bool, None, None),     # low-quality wide camera clip
   "telegram_video_wifi_only": (False, bool, None, None),
+  # Tesla API: flash the lights on an event (at night)
+  "tesla_backend": ("owner", str, None, None),     # "owner" | "fleet"
+  "tesla_refresh_token": ("", str, None, None),
+  "tesla_access_token": ("", str, None, None),     # fleet proxies that hand out a static token
+  "tesla_client_id": ("", str, None, None),        # fleet only
+  "tesla_base_url": ("", str, None, None),         # fleet only (region URL or proxy)
+  "tesla_auth_url": ("", str, None, None),         # fleet only, optional
+  "tesla_vehicle_id": ("", str, None, None),
+  "tesla_vehicle_name": ("", str, None, None),
+  "tesla_flash": (False, bool, None, None),
+  "tesla_flash_when": ("night", str, None, None),  # "night" | "always"
+  "tesla_flash_manual": (False, bool, None, None),
+  "location_source": ("gps", str, None, None),     # "gps" (last comma fix) | "manual"
+  "latitude": (40.4168, float, -90.0, 90.0),
+  "longitude": (-3.7038, float, -180.0, 180.0),
+  "night_sun_elevation": (-4.0, float, -18.0, 5.0),  # sun below this = night
 }
 
-SECRETS = ("web_password", "telegram_token", "telegram_link_code")
+CHOICES = {"tesla_backend": ("owner", "fleet"), "tesla_flash_when": ("night", "always"),
+           "location_source": ("gps", "manual")}
+
+SECRETS = ("web_password", "telegram_token", "telegram_link_code", "tesla_refresh_token", "tesla_access_token")
 
 
 def config_path() -> Path:
@@ -78,6 +97,8 @@ def _coerce(name: str, value):
     return default
   if lo is not None:
     v = max(lo, min(hi, v))
+  if name in CHOICES and v not in CHOICES[name]:
+    return default
   return v
 
 
@@ -100,6 +121,8 @@ def public(cfg: dict) -> dict:
   out["password_set"] = bool(cfg.get("web_password"))
   out["telegram_token_set"] = bool(cfg.get("telegram_token"))
   out["telegram_linked"] = bool(cfg.get("telegram_token") and cfg.get("telegram_chat_id"))
+  out["tesla_connected"] = bool((cfg.get("tesla_refresh_token") or cfg.get("tesla_access_token")) and cfg.get("tesla_vehicle_id"))
+  out["tesla_token_set"] = bool(cfg.get("tesla_refresh_token") or cfg.get("tesla_access_token"))
   return out
 
 

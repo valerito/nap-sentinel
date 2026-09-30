@@ -18,11 +18,12 @@ from pathlib import Path
 
 from aiohttp import web
 
-from nap_sentinel import config, storage, telegram
+from nap_sentinel import config, storage, telegram, tesla
 
 PORT = int(os.environ.get("SENTINEL_WEB_PORT", "8090"))
 WEB_DIR = Path(__file__).parent / "web"
-TG_USER_KEYS = ("telegram_alerts", "telegram_alert_delay_s", "telegram_video", "telegram_video_wifi_only")
+TG_USER_KEYS = ("telegram_alerts", "telegram_alert_delay_s", "telegram_video", "telegram_video_wifi_only",
+                "tesla_flash", "tesla_flash_when", "tesla_flash_manual")
 MEDIA_FILES = {"road.mp4", "fcamera.mp4", "ecamera.mp4", "dcamera.mp4", "wide_lq.mp4", "thumb.jpg"}
 
 def make_app() -> web.Application:
@@ -63,7 +64,7 @@ def make_app() -> web.Application:
       data = await request.json()
       # Telegram identity is only changed through /api/telegram/*
       data = {k: v for k, v in data.items()
-              if not k.startswith("telegram_") or k in TG_USER_KEYS}
+              if not k.startswith(("telegram_", "tesla_")) or k in TG_USER_KEYS}
       data.pop("web_password", None)
       if "password" in data:
         data["web_password"] = str(data.pop("password") or "")
@@ -174,6 +175,58 @@ def make_app() -> web.Application:
     changed = await asyncio.get_running_loop().run_in_executor(None, timesync.set_system_time, epoch, "el panel web")
     return web.json_response({"ok": True, "changed": changed, "offset_s": round(timesync.clock_offset(epoch), 1)})
 
+  # ── Tesla ─────────────────────────────────────────────────
+  async def tesla_connect(request):
+    d = await _body(request)
+    backend = d.get("backend") if d.get("backend") in ("owner", "fleet") else "owner"
+    changes = {"tesla_backend": backend,
+               "tesla_refresh_token": str(d.get("refresh_token", "")).strip(),
+               "tesla_access_token": str(d.get("access_token", "")).strip() if backend == "fleet" else "",
+               "tesla_client_id": str(d.get("client_id", "")).strip() if backend == "fleet" else "",
+               "tesla_base_url": str(d.get("base_url", "")).strip() if backend == "fleet" else "",
+               "tesla_auth_url": str(d.get("auth_url", "")).strip() if backend == "fleet" else ""}
+    if not changes["tesla_refresh_token"] and not changes["tesla_access_token"]:
+      return web.json_response({"error": "Pega el token de refresco de Tesla."}, status=400)
+    if backend == "fleet" and changes["tesla_refresh_token"] and not changes["tesla_client_id"]:
+      return web.json_response({"error": "Con Fleet API y token de refresco hace falta el client_id de tu app."}, status=400)
+    cfg = {**config.load(), **changes}
+    try:
+      cars = await asyncio.get_running_loop().run_in_executor(None, lambda: tesla.TeslaClient(cfg).vehicles())
+    except Exception as e:
+      return web.json_response({"error": f"No se pudo conectar: {e}"}, status=400)
+    # Tesla rotates the refresh token on every refresh; the client updated cfg with the new one
+    changes["tesla_refresh_token"] = cfg["tesla_refresh_token"]
+    if len(cars) == 1:
+      changes.update({"tesla_vehicle_id": cars[0]["id"], "tesla_vehicle_name": cars[0]["name"]})
+    config.update(changes)
+    return web.json_response({"vehicles": cars, "config": config.public(config.load())})
+
+  async def tesla_vehicle(request):
+    d = await _body(request)
+    config.update({"tesla_vehicle_id": str(d.get("id", "")), "tesla_vehicle_name": str(d.get("name", ""))[:60]})
+    return web.json_response(config.public(config.load()))
+
+  async def tesla_flash(request):
+    cfg = config.load()
+    if not cfg["tesla_vehicle_id"]:
+      return web.json_response({"error": "Conecta Tesla y elige el coche primero."}, status=409)
+    try:
+      took = await asyncio.get_running_loop().run_in_executor(None, lambda: tesla.TeslaClient(cfg).flash(cfg["tesla_vehicle_id"]))
+    except Exception as e:
+      return web.json_response({"error": str(e)}, status=502)
+    return web.json_response({"ok": True, "seconds": round(took)})
+
+  async def tesla_disconnect(request):
+    config.update({k: "" for k in ("tesla_refresh_token", "tesla_access_token", "tesla_client_id", "tesla_base_url",
+                                   "tesla_auth_url", "tesla_vehicle_id", "tesla_vehicle_name")} | {"tesla_flash": False})
+    return web.json_response(config.public(config.load()))
+
+  async def night(request):
+    cfg = config.load()
+    lat, lon, src = tesla.location(cfg)
+    is_n, elev = tesla.is_night(cfg)
+    return web.json_response({"night": is_n, "sun_elevation": round(elev, 1), "lat": lat, "lon": lon, "source": src})
+
   async def tg_log(request):
     return web.json_response({"lines": telegram.read_log(80)})
 
@@ -211,6 +264,11 @@ def make_app() -> web.Application:
     web.post("/api/telegram/test", tg_test),
     web.get("/api/telegram/log", tg_log),
     web.post("/api/time", set_time),
+    web.post("/api/tesla/connect", tesla_connect),
+    web.post("/api/tesla/vehicle", tesla_vehicle),
+    web.post("/api/tesla/flash", tesla_flash),
+    web.post("/api/tesla/disconnect", tesla_disconnect),
+    web.get("/api/night", night),
     web.post("/api/events/{eid}/telegram", tg_send_event),
     web.get("/media/{eid}/{name}", media),
   ])

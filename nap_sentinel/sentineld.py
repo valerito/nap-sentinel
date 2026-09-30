@@ -30,6 +30,7 @@ from nap_sentinel import config, storage
 from nap_sentinel.detector import MotionDetector, Trigger
 from nap_sentinel.exporter import OUTPUTS, export_event
 from nap_sentinel.recorder import Recorder
+from nap_sentinel.tesla import LightsService, is_night
 from nap_sentinel.telegram import TelegramService, load_tg_state, save_tg_state
 
 ThermalStatus = log.DeviceState.ThermalStatus
@@ -54,7 +55,13 @@ class State:
 class Sentinel:
   def __init__(self):
     self.params = Params()
-    self.sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState'])
+    try:
+      from openpilot.common.gps import get_gps_location_service
+      self.gps_service = get_gps_location_service(self.params)
+    except Exception:
+      self.gps_service = "gpsLocationExternal"
+    self.sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState', self.gps_service])
+    self.last_gps_save = 0.0
     self.accel_sock = messaging.sub_sock('accelerometer', conflate=False)
     self.gyro_sock = messaging.sub_sock('gyroscope', conflate=False)
 
@@ -80,6 +87,7 @@ class Sentinel:
     self.pwrsave_overridden = False
     self.shutdown_requested = False
     self.telegram = TelegramService(log=cloudlog.warning)
+    self.lights = LightsService(log=cloudlog.warning)
     from nap_sentinel import timesync
     from nap_sentinel.telegram import append_log
     timesync.set_logger(lambda m: (cloudlog.warning(f"sentinel: {m}"), append_log(m)))
@@ -113,6 +121,26 @@ class Sentinel:
     if ds.somPowerDrawW > 0.05:
       return {"power_draw_w": round(ds.somPowerDrawW, 2), "power_source": "SoM"}
     return {"power_draw_w": None, "power_source": None}
+
+  def _remember_gps(self, now: float) -> None:
+    """Keep the last GPS fix (usually from the last drive) to know where the car
+    is parked, for the day/night calculation."""
+    if now - self.last_gps_save < 300 or not self.sm.updated.get(self.gps_service, False):
+      return
+    g = self.sm[self.gps_service]
+    if not getattr(g, "hasFix", False) or (g.latitude == 0 and g.longitude == 0):
+      return
+    self.last_gps_save = now
+    st = config.read_json(STATE_FILE, default={}) or {}
+    st.update({"gps_lat": round(g.latitude, 4), "gps_lon": round(g.longitude, 4), "gps_time": time.time()})  # noqa: TID251
+    config.atomic_write_json(STATE_FILE, st)
+
+  def _night_status(self) -> dict:
+    try:
+      night, elev = is_night(self.cfg)
+      return {"night": night, "sun_elevation": round(elev, 1)}
+    except Exception:
+      return {"night": None, "sun_elevation": None}
 
   def _voltage(self) -> float | None:
     ps = self.sm['peripheralState']
@@ -253,7 +281,12 @@ class Sentinel:
       "files": {},
       "locked": False,
     }
+    flash, why = self.lights.should_flash(self.cfg, trig.reason)
+    self.event["lights"] = "solicitado" if flash else why
     storage.save_event(self.event)
+    if flash:
+      self.lights.flash_async(dict(self.cfg), on_done=lambda res, eid=self.event["id"]: config.atomic_write_json(
+        storage.sentinel_root() / eid / "lights.json", {"result": res, "t": time.time()}))  # noqa: TID251
     self.trigger_mono = now
     self.record_started = now
     self.record_until = now + clip_s
@@ -385,6 +418,8 @@ class Sentinel:
       "max_temp_c": round(ds.maxTempC, 1),
       "free_space_pct": round(ds.freeSpacePercent, 1),
       "network": str(ds.networkType),
+      **self._night_status(),
+      "tesla_last": self.lights.last_result,
       "parked_h": round((now - self.offroad_since) / 3600, 2) if self.offroad_since else 0,
     }
     try:
@@ -404,6 +439,7 @@ class Sentinel:
     onroad = self._onroad()
     enabled = self.cfg["enabled"]
     self._manage_power(now, onroad)
+    self._remember_gps(now)
 
     if onroad or not enabled:
       if self.state == State.RECORDING:
