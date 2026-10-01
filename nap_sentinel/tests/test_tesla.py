@@ -158,7 +158,7 @@ def test_login_start_is_valid_pkce():
   st = tesla.login_start()
   q = urllib.parse.parse_qs(urllib.parse.urlparse(st["url"]).query)
   assert st["url"].startswith(tesla.AUTHORIZE_URL)
-  assert q["client_id"] == ["ownerapi"] and q["redirect_uri"] == [tesla.VOID_CALLBACK]
+  assert q["client_id"] == ["ownerapi"] and q["redirect_uri"] == [tesla.REDIRECT_URI]
   assert q["code_challenge_method"] == ["S256"] and q["state"] == [st["state"]]
   expect = base64.urlsafe_b64encode(hashlib.sha256(st["verifier"].encode()).digest()).rstrip(b"=").decode()
   assert q["code_challenge"] == [expect]
@@ -166,12 +166,18 @@ def test_login_start_is_valid_pkce():
 
 
 def test_parse_callback():
-  cb = tesla.parse_callback("https://auth.tesla.com/void/callback?code=abc123&state=xyz&issuer=https%3A%2F%2Fauth.tesla.com%2Foauth2%2Fv3")
+  cb = tesla.parse_callback("tesla://auth/callback?code=abc123&state=xyz&issuer=https%3A%2F%2Fauth.tesla.com%2Foauth2%2Fv3")
   assert cb == {"code": "abc123", "state": "xyz", "token_url": "https://auth.tesla.com/oauth2/v3/token"}
-  assert tesla.parse_callback("https://auth.tesla.com/void/callback?code=c&issuer=https://auth.tesla.cn/oauth2/v3")["token_url"].startswith(
+  assert tesla.parse_callback("tesla://auth/callback?code=c&issuer=https://auth.tesla.cn/oauth2/v3")["token_url"].startswith(
     "https://auth.tesla.cn")
   with pytest.raises(tesla.TeslaError, match="código"):
-    tesla.parse_callback("https://auth.tesla.com/void/callback?error=login_cancelled")
+    tesla.parse_callback("tesla://auth/callback?error=login_cancelled")
+  # Chrome's console line, pasted whole
+  line = ("Failed to launch 'tesla://auth/callback?code=EU_abc-123.x&state=s1&issuer=https%3A%2F%2Fauth.tesla.com%2Foauth2%2Fv3' "
+          "because the scheme does not have a registered handler.")
+  assert tesla.parse_callback(line)["code"] == "EU_abc-123.x" and tesla.parse_callback(line)["state"] == "s1"
+  assert tesla.parse_callback("  EU_0123456789abcdefghij  ")["code"] == "EU_0123456789abcdefghij"
+  assert "phone" in tesla.login_start()["url"]
 
 
 class LoginSession(FakeSession):
@@ -187,13 +193,13 @@ class LoginSession(FakeSession):
 def test_login_finish_exchanges_code(cfg):
   s = LoginSession()
   s.expect_verifier = "ver"
-  tok = tesla.login_finish("https://auth.tesla.com/void/callback?code=good-code&state=st", "ver", "st", session=s)
+  tok = tesla.login_finish("tesla://auth/callback?code=good-code&state=st", "ver", "st", session=s)
   assert tok["refresh_token"] == "rt-good"
-  assert s.calls[0][2]["grant_type"] == "authorization_code" and s.calls[0][2]["redirect_uri"] == tesla.VOID_CALLBACK
+  assert s.calls[0][2]["grant_type"] == "authorization_code" and s.calls[0][2]["redirect_uri"] == tesla.REDIRECT_URI
   with pytest.raises(tesla.TeslaError, match="otro inicio"):
-    tesla.login_finish("https://auth.tesla.com/void/callback?code=good-code&state=OTHER", "ver", "st", session=s)
+    tesla.login_finish("tesla://auth/callback?code=good-code&state=OTHER", "ver", "st", session=s)
   with pytest.raises(tesla.TeslaError, match="no aceptó"):
-    tesla.login_finish("https://auth.tesla.com/void/callback?code=bad&state=st", "ver", "st", session=s)
+    tesla.login_finish("tesla://auth/callback?code=bad&state=st", "ver", "st", session=s)
 
 
 def test_web_login_flow(cfg, monkeypatch):
@@ -217,7 +223,7 @@ def test_web_login_flow(cfg, monkeypatch):
       assert r["url"].startswith(tesla.AUTHORIZE_URL)
       state = config.load()["tesla_login_state"]
       assert "tesla_login_verifier" not in (await (await c.get("/api/config")).json())
-      r = await c.post("/api/tesla/login/finish", json={"url": f"https://auth.tesla.com/void/callback?code=good-code&state={state}"})
+      r = await c.post("/api/tesla/login/finish", json={"url": f"tesla://auth/callback?code=good-code&state={state}"})
       body = await r.json()
       assert r.status == 200 and body["config"]["tesla_connected"] and body["vehicles"][0]["name"] == "Sam"
       c2 = config.load()

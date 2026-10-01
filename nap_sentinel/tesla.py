@@ -34,10 +34,14 @@ MAX_FLASHES_PER_HOUR = 6
 # ── "Iniciar sesión con Tesla" (Owner API, OAuth2 + PKCE) ─────────
 # Same flow the token apps and TeslaPy use: the user logs in on Tesla's own
 # page (Sentinel never sees the password). Tesla then redirects to
-# auth.tesla.com/void/callback?code=..., a "page not found" the user copies
-# back into the panel; the code is exchanged here for the tokens.
+# tesla://auth/callback?code=... (the Tesla app's own address; Tesla retired
+# https://auth.tesla.com/void/callback in June 2026). A browser without the
+# Tesla app can't open it, so the user copies it (address bar on Firefox, or
+# the "Failed to launch 'tesla://…'" line in Chrome's console) back into the
+# panel, and the code is exchanged here for the tokens.
 AUTHORIZE_URL = "https://auth.tesla.com/oauth2/v3/authorize"
-VOID_CALLBACK = "https://auth.tesla.com/void/callback"
+REDIRECT_URI = "tesla://auth/callback"
+LOGIN_SCOPE = "openid email offline_access phone"
 LOGIN_TTL_S = 15 * 60
 
 
@@ -50,24 +54,33 @@ def login_start() -> dict:
   challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
   state = secrets.token_urlsafe(16)
   params = {"client_id": OWNER_CLIENT_ID, "code_challenge": challenge, "code_challenge_method": "S256",
-            "redirect_uri": VOID_CALLBACK, "response_type": "code", "scope": "openid email offline_access",
+            "redirect_uri": REDIRECT_URI, "response_type": "code", "scope": LOGIN_SCOPE,
             "state": state, "locale": "es-ES", "prompt": "login"}
   return {"url": f"{AUTHORIZE_URL}?{urllib.parse.urlencode(params)}", "verifier": verifier, "state": state,
           "expires": time.time() + LOGIN_TTL_S}  # noqa: TID251
 
 
 def parse_callback(url: str) -> dict:
-  """Returns {'code', 'state', 'token_url'} from the pasted void/callback URL."""
+  """Returns {'code', 'state', 'token_url'} from whatever the user pasted: the
+  tesla://auth/callback?code=... address, Chrome's whole "Failed to launch" console
+  line, or just the code."""
+  import re
   import urllib.parse
-  url = (url or "").strip()
-  q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-  code = (q.get("code") or [""])[0]
+  text = (url or "").strip()
+
+  def param(name: str) -> str:
+    m = re.search(rf"[?&]{name}=([^&\s'\"]+)", text)
+    return urllib.parse.unquote(m.group(1)) if m else ""
+
+  code = param("code")
+  if not code and re.fullmatch(r"[A-Za-z0-9._~-]{20,}", text.strip("'\"")):
+    code = text.strip("'\"")   # just the code
   if not code:
-    raise TeslaError("No encuentro el código en esa dirección. Copia la URL completa de la página final "
-                     "(empieza por https://auth.tesla.com/void/callback?code=…)")
-  issuer = (q.get("issuer") or [""])[0]
+    raise TeslaError("No encuentro el código. Pega la dirección que empieza por tesla://auth/callback?code=… "
+                     "(o la línea roja entera de la consola).")
+  issuer = param("issuer")
   host = "auth.tesla.cn" if "tesla.cn" in issuer else "auth.tesla.com"
-  return {"code": code, "state": (q.get("state") or [""])[0], "token_url": f"https://{host}/oauth2/v3/token"}
+  return {"code": code, "state": param("state"), "token_url": f"https://{host}/oauth2/v3/token"}
 
 
 def login_finish(callback_url: str, verifier: str, state: str, session=None) -> dict:
@@ -78,7 +91,7 @@ def login_finish(callback_url: str, verifier: str, state: str, session=None) -> 
     raise TeslaError("Esa dirección es de otro inicio de sesión. Vuelve a pulsar «Iniciar sesión con Tesla».")
   s = session or _session()
   body = {"grant_type": "authorization_code", "client_id": OWNER_CLIENT_ID, "code": cb["code"],
-          "code_verifier": verifier, "redirect_uri": VOID_CALLBACK}
+          "code_verifier": verifier, "redirect_uri": REDIRECT_URI}
   try:
     r = s.post(cb["token_url"], json=body, timeout=20)
   except requests.RequestException as e:

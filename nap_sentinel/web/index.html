@@ -186,12 +186,15 @@
     <h2>Luces (Tesla)</h2>
     <div id="teslaSetup">
       <p class="muted" style="margin-top:0">Hace un destello de luces con la API de Tesla cuando hay un evento (por defecto solo de noche) para que la grabación se vea mejor.</p>
+      <p class="muted" style="font-size:12px">Hazlo desde un <b>ordenador</b> (Chrome, Edge o Firefox). En el móvil, si tienes la app de Tesla, el código se lo queda la app.</p>
       <ol class="steps">
         <li><button class="primary" id="teslaLogin">Iniciar sesión con Tesla</button><br>
           <small class="muted">Se abre la web oficial de Tesla; tu contraseña se escribe allí, nunca aquí.</small></li>
-        <li>Al terminar, Tesla muestra una página que dice <b>«Page Not Found»</b>: es normal. Copia su <b>dirección completa</b>
-          (empieza por <code>https://auth.tesla.com/void/callback?code=</code>) y pégala aquí:
-          <div class="inline" style="margin-top:6px"><input id="teslaCallback" placeholder="https://auth.tesla.com/void/callback?code=…" autocomplete="off">
+        <li>En esa pestaña de Tesla, <b>antes de entrar</b>, pulsa <b>F12</b> y abre la pestaña <b>Console</b> (Consola).</li>
+        <li>Inicia sesión. Al terminar la página no cambia, pero en la consola sale una línea roja:
+          <code>Failed to launch 'tesla://auth/callback?code=…'</code>. Cópiala entera
+          <small class="muted">(en Firefox sale una página de error: copia su dirección)</small> y pégala aquí:
+          <div class="inline" style="margin-top:6px"><input id="teslaCallback" placeholder="tesla://auth/callback?code=…" autocomplete="off">
           <button class="primary" id="teslaFinish">Terminar</button></div></li>
       </ol>
       <details style="margin-top:6px"><summary>Otras formas de conectar (token, Fleet API, MyTeslaMate)</summary>
