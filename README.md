@@ -151,17 +151,18 @@ Al detectar un evento de noche, sentinel pide al coche un **destello de luces** 
 
 **Conectar**, en el panel web, sección **Luces (Tesla)**. Es el mismo sistema que usan TeslaMate y las apps de tokens:
 
-Hazlo desde un **ordenador** con Chrome, Edge o Firefox. En el móvil no funciona si tienes la app de Tesla, porque el código se lo queda la app.
+Se hace desde el **móvil** (o el ordenador), aunque tengas la app de Tesla instalada:
 
-1. Pulsa **Iniciar sesión con Tesla**. Se abre la web oficial de Tesla en otra pestaña.
-2. En esa pestaña, **antes de iniciar sesión**, pulsa **F12** y abre la pestaña **Console** (Consola).
-3. Inicia sesión allí, con tu contraseña y, si lo tienes, el código 2FA. Sentinel nunca ve tu contraseña.
-4. Al terminar, la página no cambia, pero en la consola aparece una línea roja: `Failed to launch 'tesla://auth/callback?code=…'`. Cópiala **entera**, pégala en el panel y pulsa **Terminar**.
-   - En Firefox aparece una página de error: copia su dirección (empieza por `tesla://auth/callback?code=…`).
-   - El código caduca en unos minutos: pégalo nada más verlo.
+1. **Solo la primera vez**, crea el marcador `sentinel`: en el panel pulsa **📋 Copiar marcador** y crea un marcador con ese nombre pegando lo copiado como dirección.
+   - **Android (Chrome):** ⋮ → ☆ para guardar el panel → *Editar*: nombre `sentinel`; en la URL borra lo que hay y pega.
+   - **iPhone (Safari):** Compartir → *Añadir marcador*. Luego Marcadores → *Editar* → ese marcador: nombre `sentinel`; en la dirección borra lo que hay y pega.
+   - **Ordenador:** arrastra el botón «🛡️ sentinel» del panel a la barra de marcadores.
+2. Pulsa **Iniciar sesión con Tesla**. Se abre la web oficial de Tesla. Sentinel nunca ve tu contraseña.
+3. En la página de Tesla, **antes de escribir tu email**, abre el marcador: toca la barra de direcciones, escribe `sentinel` y toca la sugerencia con ☆ (iPhone: Marcadores → sentinel). Abajo aparece «🛡️ Sentinel escuchando».
+4. Inicia sesión, con tu contraseña y, si lo tienes, el código 2FA. Al terminar **vuelves solo al panel** y Tesla queda conectado.
 5. Si la cuenta tiene varios coches, elige el tuyo. Después pulsa **💡 Destello de prueba**.
 
-¿Por qué hay que copiar una dirección, en vez de volver solo? Tesla solo devuelve el código a direcciones registradas. TeslaMate o MyTeslaMate tienen su propio dominio registrado en Tesla. El comma está en tu red local, sin dominio propio, así que se usa la misma dirección que la app de Tesla (`tesla://auth/callback`), que el navegador no sabe abrir, y ese último paso es manual. Tesla retiró en junio de 2026 la dirección que se usaba antes (`https://auth.tesla.com/void/callback`), y por eso la 1.3.x–1.4.0 daban el error *«The 'redirect_uri' supplied is not registered for this 'client_id'»*.
+¿Para qué el marcador? Tesla solo devuelve el código a direcciones registradas, y para este tipo de inicio de sesión solo admite la de su propia app (`tesla://auth/callback`). En el móvil esa dirección abre la app de Tesla y el código se pierde. El marcador lee esa dirección de la respuesta de Tesla antes de que la página la siga y vuelve al panel con ella (detrás de `#`, así que no pasa por ningún servidor). Si no vuelve solo, el recuadro muestra el código para pegarlo en *¿No vuelve solo? Pegar el código a mano*. El marcador lleva la dirección del panel: si cambia la IP del comma, vuelve a crearlo. Tesla retiró en junio de 2026 la dirección que se usaba antes (`https://auth.tesla.com/void/callback`), y por eso la 1.3.x–1.4.0 daban el error *«The 'redirect_uri' supplied is not registered for this 'client_id'»*.
 
 **Otras formas de conectar** (en el mismo panel):
 - **Token de refresco** de la Owner API, generado con una app de tokens de Tesla.
@@ -305,6 +306,7 @@ cat /data/sentinel/update.log                         # última actualización d
 
 | Versión | Cambios |
 |---|---|
+| 1.4.2 | Inicio de sesión con Tesla desde el móvil: el marcador `sentinel` captura el código antes de que se abra la app de Tesla y vuelve solo al panel. |
 | 1.4.1 | «Iniciar sesión con Tesla» vuelve a funcionar: Tesla retiró la dirección `void/callback`; ahora se usa `tesla://auth/callback` y se copia desde la consola del navegador. |
 | 1.4.0 | Actualizaciones desde el panel web: aviso cuando hay versión nueva en GitHub, botón **Actualizar** y, al terminar, **Reiniciar ahora**. Versión visible en el panel. |
 | 1.3.1 | Con el aviso retrasado, el vídeo ya no puede llegar antes que el aviso: espera a que se envíe el aviso y va justo después, como respuesta. |

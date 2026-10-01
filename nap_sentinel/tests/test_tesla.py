@@ -178,6 +178,8 @@ def test_parse_callback():
   assert tesla.parse_callback(line)["code"] == "EU_abc-123.x" and tesla.parse_callback(line)["state"] == "s1"
   assert tesla.parse_callback("  EU_0123456789abcdefghij  ")["code"] == "EU_0123456789abcdefghij"
   assert "phone" in tesla.login_start()["url"]
+  with pytest.raises(tesla.TeslaError, match="recortada"):
+    tesla.parse_callback("Failed to launch 'tesla://auth/callback?code=EU_g2n6iuuw2ruy…er=https%3A%2F%2Fauth.tesla.com&state=x'")
 
 
 class LoginSession(FakeSession):

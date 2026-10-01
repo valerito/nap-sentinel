@@ -72,6 +72,9 @@ def parse_callback(url: str) -> dict:
     m = re.search(rf"[?&]{name}=([^&\s'\"]+)", text)
     return urllib.parse.unquote(m.group(1)) if m else ""
 
+  if "…" in text:
+    raise TeslaError("La dirección está recortada («…»). En la pestaña Red (Network) de F12, clic derecho en la fila "
+                     "roja «callback?code=…» → Copiar → Copiar URL, y pégala aquí.")
   code = param("code")
   if not code and re.fullmatch(r"[A-Za-z0-9._~-]{20,}", text.strip("'\"")):
     code = text.strip("'\"")   # just the code

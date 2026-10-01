@@ -186,17 +186,31 @@
     <h2>Luces (Tesla)</h2>
     <div id="teslaSetup">
       <p class="muted" style="margin-top:0">Hace un destello de luces con la API de Tesla cuando hay un evento (por defecto solo de noche) para que la grabación se vea mejor.</p>
-      <p class="muted" style="font-size:12px">Hazlo desde un <b>ordenador</b> (Chrome, Edge o Firefox). En el móvil, si tienes la app de Tesla, el código se lo queda la app.</p>
       <ol class="steps">
+        <li><b>Solo la primera vez:</b> crea en el navegador un marcador llamado <code>sentinel</code>.
+          <div class="actions"><button id="bmCopy">📋 Copiar marcador</button></div>
+          <details style="margin-top:6px" open><summary>Cómo crearlo</summary>
+            <p style="margin:6px 0"><b>Android (Chrome):</b> pulsa «Copiar marcador». Luego <b>⋮ → ☆</b> para guardar esta página y toca <b>Editar</b>:
+              nombre <code>sentinel</code>; en la URL borra lo que hay y <b>pega</b>. Guarda.</p>
+            <p style="margin:6px 0"><b>iPhone (Safari):</b> pulsa «Copiar marcador». Luego <b>Compartir → Añadir marcador</b> y guarda. Abre
+              <b>Marcadores → Editar</b>, toca el nuevo: nombre <code>sentinel</code>; en la dirección borra lo que hay y <b>pega</b>.</p>
+            <p style="margin:6px 0"><b>Ordenador:</b> arrastra este botón a la barra de marcadores: <a id="bmLink" class="tag" href="#">🛡️ sentinel</a></p>
+            <textarea id="bmText" readonly rows="2" style="width:100%;font-size:11px" hidden></textarea>
+          </details></li>
         <li><button class="primary" id="teslaLogin">Iniciar sesión con Tesla</button><br>
           <small class="muted">Se abre la web oficial de Tesla; tu contraseña se escribe allí, nunca aquí.</small></li>
-        <li>En esa pestaña de Tesla, <b>antes de entrar</b>, pulsa <b>F12</b> y abre la pestaña <b>Console</b> (Consola).</li>
-        <li>Inicia sesión. Al terminar la página no cambia, pero en la consola sale una línea roja:
-          <code>Failed to launch 'tesla://auth/callback?code=…'</code>. Cópiala entera
-          <small class="muted">(en Firefox sale una página de error: copia su dirección)</small> y pégala aquí:
-          <div class="inline" style="margin-top:6px"><input id="teslaCallback" placeholder="tesla://auth/callback?code=…" autocomplete="off">
-          <button class="primary" id="teslaFinish">Terminar</button></div></li>
+        <li>En la página de Tesla, <b>antes de escribir tu email</b>, abre el marcador: toca la barra de direcciones, escribe
+          <code>sentinel</code> y toca la sugerencia con ☆ <small class="muted">(iPhone: Marcadores → sentinel)</small>.
+          Abajo aparece «Sentinel escuchando».</li>
+        <li>Inicia sesión. <b>Volverás aquí solo</b> y Tesla quedará conectado.</li>
       </ol>
+      <p id="teslaMsg" class="muted" style="font-weight:600"></p>
+      <details style="margin-top:6px"><summary>¿No vuelve solo? Pegar el código a mano</summary>
+        <p class="muted" style="font-size:12px">Pega lo que muestra el recuadro de Sentinel en la página de Tesla. En un ordenador también vale:
+          F12 → Red → clic derecho en la fila roja <code>callback?code=…</code> → Copiar → Copiar URL.</p>
+        <div class="inline"><input id="teslaCallback" placeholder="tesla://auth/callback?code=…" autocomplete="off">
+          <button class="primary" id="teslaFinish">Terminar</button></div>
+      </details>
       <details style="margin-top:6px"><summary>Otras formas de conectar (token, Fleet API, MyTeslaMate)</summary>
       <div class="row"><label>Tipo de API<small>Owner API: la de siempre. Fleet API: la oficial o un proxy.</small></label>
         <select id="teslaBackend"><option value="owner">Owner API</option><option value="fleet">Fleet API / proxy</option></select></div>
@@ -590,6 +604,73 @@ $("#teslaFinish").onclick = async () => {
   try { afterTeslaConnect(await api("/api/tesla/login/finish", { url: $("#teslaCallback").value.trim() })); $("#teslaCallback").value = ""; }
   catch (e) { toast(e.message); } finally { b.disabled = false; b.textContent = "Terminar"; }
 };
+// The "sentinel" bookmark runs on Tesla's login page. Tesla ends the login by
+// sending the browser to tesla://auth/callback?code=… (the Tesla app's address),
+// which on a phone opens the app and the code is lost. The bookmark reads that
+// address from Tesla's own response first, stops the page from following it, and
+// comes back here with it (after "#", so it never reaches any server log).
+function napCapture(panel) {
+  if (window.__napSentinel) { alert("Sentinel ya está escuchando. Inicia sesión."); return; }
+  window.__napSentinel = 1;
+  const box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:8px;right:8px;bottom:8px;z-index:2147483647;background:#1d242e;color:#fff;" +
+    "font:16px/1.4 sans-serif;padding:14px;border-radius:12px;box-shadow:0 2px 14px rgba(0,0,0,.5)";
+  box.textContent = "🛡️ Sentinel escuchando. Ahora inicia sesión.";
+  document.body.appendChild(box);
+  const find = (t) => {
+    t = String(t || "").replace(/\\u0026/g, "&").replace(/\\\//g, "/");
+    const m = t.match(/tesla:\/\/auth\/callback\?[^"'\s<>\\]+/);
+    return m && m[0];
+  };
+  const done = (u) => {
+    const back = () => { location.href = panel + String.fromCharCode(35) + "tesla_cb=" + encodeURIComponent(u); };
+    box.textContent = "✅ Listo. Volviendo al panel de Sentinel…";
+    const b = document.createElement("button");
+    b.textContent = "Volver al panel";
+    b.style.cssText = "display:block;margin:10px 0;font-size:16px;padding:8px 14px";
+    b.onclick = back;
+    const t = document.createElement("textarea");
+    t.value = u; t.readOnly = true;
+    t.style.cssText = "width:100%;height:56px;font-size:11px;color:#000";
+    box.append(b, "Si no vuelve solo, copia esto y pégalo en el panel:", t);
+    setTimeout(back, 700);
+  };
+  const orig = window.fetch;
+  window.fetch = async function (...args) {
+    const r = await orig.apply(this, args);
+    try {
+      const u = find(r.headers.get("location")) || find(r.url) || find(await r.clone().text());
+      if (u) { done(u); return new Promise(() => {}); }   // never hand it to Tesla's page -> no jump to the app
+    } catch (e) { /* not ours */ }
+    return r;
+  };
+}
+function bookmarklet() {
+  return "javascript:" + encodeURIComponent(`(${napCapture.toString()})(${JSON.stringify(location.origin + location.pathname)})`);
+}
+function copyText(text) {
+  const t = $("#bmText"); t.hidden = false; t.value = text; t.select(); t.setSelectionRange(0, text.length);
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) {}
+  if (!ok && navigator.clipboard) navigator.clipboard.writeText(text).then(() => toast("Marcador copiado"), () => {});
+  return ok;
+}
+$("#bmLink").href = bookmarklet();
+$("#bmLink").onclick = (e) => { e.preventDefault(); toast("Arrástralo a la barra de marcadores"); };
+$("#bmCopy").onclick = () => {
+  toast(copyText(bookmarklet()) ? "Marcador copiado: ahora créalo con ☆ y pégalo en la URL" : "Mantén pulsado el texto de abajo y cópialo");
+};
+async function teslaFromHash() {
+  const h = location.hash;
+  if (!h.startsWith("#tesla_cb=")) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  const url = decodeURIComponent(h.slice("#tesla_cb=".length));
+  $("#tesla").scrollIntoView();
+  $("#teslaMsg").textContent = "Conectando con Tesla…";
+  try { afterTeslaConnect(await api("/api/tesla/login/finish", { url })); $("#teslaMsg").textContent = ""; }
+  catch (e) { $("#teslaMsg").textContent = "❌ " + e.message; $("#teslaCallback").value = url; }
+}
+teslaFromHash();
 $("#teslaMtm").onclick = (e) => { e.preventDefault(); $("#teslaBase").value = "https://api.myteslamate.com"; $("#teslaAccess").focus(); };
 $("#teslaCars").onchange = async () => {
   const o = $("#teslaCars").selectedOptions[0];
