@@ -36,8 +36,14 @@ class FakeSession:
     if tok not in self.valid_access:
       return Resp(401, {})
     path = url.split(".com", 1)[1]
-    if path == "/api/1/vehicles":
-      return Resp(200, {"response": [{"id_s": "123", "display_name": "Sam", "vin": "5YJS", "state": "asleep"}]})
+    if path == "/api/1/vehicles":   # what the real Owner API does since 2024
+      return Resp(412, {"response": None,
+                        "error": "Endpoint is only available on fleetapi. Visit https://developer.tesla.com/docs for more info"})
+    if path == "/api/1/products":
+      if getattr(self, "products_down", False):
+        return Resp(500, {"error": "upstream"})
+      return Resp(200, {"response": [{"id": 999, "energy_site_id": 999, "resource_type": "battery", "site_name": "Casa"},
+                                     {"id": 123, "id_s": "123", "display_name": "Sam", "vin": "5YJS", "state": "asleep"}]})
     if path.endswith("/wake_up"):
       self.awake = True
       return Resp(200, {"response": {"state": "online"}})
@@ -230,4 +236,44 @@ def test_web_login_flow(cfg, monkeypatch):
       assert r.status == 200 and body["config"]["tesla_connected"] and body["vehicles"][0]["name"] == "Sam"
       c2 = config.load()
       assert c2["tesla_backend"] == "owner" and c2["tesla_refresh_token"].startswith("rt-") and c2["tesla_login_verifier"] == ""
+  asyncio.run(go())
+
+
+def test_vehicle_list_uses_products_and_reports_tesla_message(cfg):
+  s = FakeSession()
+  c = tesla.TeslaClient(config.load(), session=s)
+  assert c.vehicles() == [{"id": "123", "name": "Sam", "vin": "5YJS", "state": "asleep"}]   # Powerwall filtered out
+  assert not any(u.endswith("/api/1/vehicles") for _, u in [x[:2] for x in s.calls if x[0] == "GET"])
+  with pytest.raises(tesla.TeslaError, match="only available on fleetapi") as e:
+    c.request("GET", "/api/1/vehicles")
+  assert e.value.status == 412 and "rt-" not in str(e.value)
+
+
+def test_login_keeps_token_when_car_list_fails(cfg, monkeypatch):
+  import asyncio
+  from aiohttp.test_utils import TestClient, TestServer
+  from nap_sentinel import webd
+  config.update({"tesla_refresh_token": "", "tesla_vehicle_id": ""})
+  holder = {}
+
+  def fake_session():
+    s = LoginSession()
+    s.expect_verifier = config.load()["tesla_login_verifier"]
+    s.products_down = holder.get("down", True)
+    holder["s"] = s
+    return s
+  monkeypatch.setattr(tesla, "_session", fake_session)
+
+  async def go():
+    async with TestClient(TestServer(webd.make_app())) as c:
+      await c.post("/api/tesla/login/start")
+      state = config.load()["tesla_login_state"]
+      r = await c.post("/api/tesla/login/finish", json={"url": f"tesla://auth/callback?code=good-code&state={state}"})
+      assert r.status == 400 and "no se pudo leer el coche" in (await r.json())["error"]
+      pub = await (await c.get("/api/config")).json()
+      assert pub["tesla_token_set"] and not pub["tesla_connected"]       # token kept
+      holder["down"] = False
+      r = await c.post("/api/tesla/vehicles")
+      body = await r.json()
+      assert r.status == 200 and body["config"]["tesla_connected"] and body["config"]["tesla_vehicle_name"] == "Sam"
   asyncio.run(go())

@@ -229,7 +229,7 @@
     <div id="teslaOn" hidden>
       <p style="margin:0">🚗 Conectado: <b id="teslaCar"></b> <span class="muted" id="teslaApi"></span></p>
       <div id="teslaPick" class="row" hidden><label>Coche</label><select id="teslaCars"></select></div>
-      <div class="actions" style="margin:10px 0 6px"><button id="teslaTest">💡 Destello de prueba</button><button id="teslaOff" class="danger">Desconectar</button></div>
+      <div class="actions" style="margin:10px 0 6px"><button id="teslaFind" class="primary" hidden>🔎 Buscar mis coches</button><button id="teslaTest">💡 Destello de prueba</button><button id="teslaOff" class="danger">Desconectar</button></div>
       <div class="row"><label>Destello en eventos<small>Si el coche duerme, primero se despierta (10–40 s)</small></label>
         <label class="switch"><input type="checkbox" data-k="tesla_flash"><span></span></label></div>
       <div class="row"><label>Cuándo</label>
@@ -330,6 +330,8 @@ function renderTesla(c) {
   $("#teslaCar").textContent = c.tesla_vehicle_name || (c.tesla_vehicle_id ? c.tesla_vehicle_id : "elige el coche");
   $("#teslaApi").textContent = c.tesla_backend === "fleet" ? "(Fleet API)" : "(Owner API)";
   $("#latlonRow").hidden = c.location_source !== "manual";
+  $("#teslaFind").hidden = !c.tesla_token_set || !!c.tesla_vehicle_id;
+  $("#teslaTest").hidden = !c.tesla_vehicle_id;
 }
 async function refreshNight() {
   try {
@@ -675,6 +677,12 @@ $("#teslaMtm").onclick = (e) => { e.preventDefault(); $("#teslaBase").value = "h
 $("#teslaCars").onchange = async () => {
   const o = $("#teslaCars").selectedOptions[0];
   if (o) renderConfig(await api("/api/tesla/vehicle", { id: o.value, name: o.dataset.name }));
+};
+$("#teslaFind").onclick = async () => {
+  const b = $("#teslaFind"); b.disabled = true; b.textContent = "Buscando…";
+  try { afterTeslaConnect(await api("/api/tesla/vehicles", {})); $("#teslaMsg").textContent = ""; }
+  catch (e) { toast(e.message); $("#teslaMsg").textContent = "❌ " + e.message; }
+  finally { b.disabled = false; b.textContent = "🔎 Buscar mis coches"; }
 };
 $("#teslaTest").onclick = async () => {
   const b = $("#teslaTest"); b.disabled = true; b.textContent = "Enviando (despertando el coche)…";

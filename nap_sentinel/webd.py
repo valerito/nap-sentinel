@@ -203,10 +203,13 @@ def make_app() -> web.Application:
     return web.json_response({"vehicles": cars, "config": config.public(config.load())})
 
   async def _finish_connect(changes: dict):
-    cfg = {**config.load(), **changes}
+    # keep the tokens even if listing the cars fails, so "Buscar mis coches" can retry without logging in again
+    config.update(changes)
+    cfg = config.load()
     try:
       cars = await asyncio.get_running_loop().run_in_executor(None, lambda: tesla.TeslaClient(cfg).vehicles())
     except Exception as e:
+      config.update({"tesla_refresh_token": cfg["tesla_refresh_token"], "tesla_access_token": cfg.get("tesla_access_token", "")})
       raise web.HTTPBadRequest(text=__import__("json").dumps({"error": f"Conectado a Tesla, pero no se pudo leer el coche: {e}"}),
                                content_type="application/json") from None
     changes["tesla_refresh_token"] = cfg["tesla_refresh_token"]
@@ -234,6 +237,20 @@ def make_app() -> web.Application:
     config.update({"tesla_login_verifier": "", "tesla_login_state": "", "tesla_login_expires": 0.0})
     return await _finish_connect({"tesla_backend": "owner", "tesla_refresh_token": tok["refresh_token"],
                                   "tesla_access_token": "", "tesla_client_id": "", "tesla_base_url": "", "tesla_auth_url": ""})
+
+  async def tesla_vehicles(request):
+    cfg = config.load()
+    if not (cfg["tesla_refresh_token"] or cfg["tesla_access_token"]):
+      return web.json_response({"error": "Inicia sesión con Tesla primero."}, status=409)
+    try:
+      cars = await asyncio.get_running_loop().run_in_executor(None, lambda: tesla.TeslaClient(cfg).vehicles())
+    except Exception as e:
+      return web.json_response({"error": f"No se pudo leer el coche: {e}"}, status=502)
+    changes = {"tesla_refresh_token": cfg["tesla_refresh_token"]}
+    if len(cars) == 1:
+      changes.update({"tesla_vehicle_id": cars[0]["id"], "tesla_vehicle_name": cars[0]["name"]})
+    config.update(changes)
+    return web.json_response({"vehicles": cars, "config": config.public(config.load())})
 
   async def tesla_vehicle(request):
     d = await _body(request)
@@ -339,6 +356,7 @@ def make_app() -> web.Application:
     web.post("/api/tesla/login/start", tesla_login_start),
     web.post("/api/tesla/login/finish", tesla_login_finish),
     web.post("/api/tesla/vehicle", tesla_vehicle),
+    web.post("/api/tesla/vehicles", tesla_vehicles),
     web.post("/api/tesla/flash", tesla_flash),
     web.post("/api/tesla/disconnect", tesla_disconnect),
     web.get("/api/night", night),

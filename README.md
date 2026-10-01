@@ -288,6 +288,7 @@ cat /data/sentinel/update.log                         # última actualización d
 | No recibo el aviso | ¿Arrancaste el coche en los primeros 30 s? Entonces se descartó a propósito. Revisa *Esperar antes de avisar*. |
 | Demasiados avisos | Baja la sensibilidad o sube *Esperar antes de avisar*. |
 | Tesla dice *«The 'redirect_uri' supplied is not registered…»* | Actualiza a 1.4.1 o posterior. |
+| *«Conectado a Tesla, pero no se pudo leer el coche… HTTP 412»* | Actualiza a 1.4.3 o posterior y pulsa **🔎 Buscar mis coches** (o vuelve a iniciar sesión). Tesla cerró la lista de coches de la Owner API; ahora se lee como hace TeslaMate. |
 | El destello no funciona | Prueba **💡 Destello de prueba** en el panel; el error dice si es el token (403: tu cuenta ya no admite Owner API, prueba Fleet API), el coche sin conexión o que no despertó. |
 | Consumo "0,0 W" o "–" | Actualiza a 1.1.6+. Pasa el ratón por el valor para ver de dónde sale la medida. |
 | Horas o nombres de eventos con fecha rara | La hora del comma está mal: usa el botón del aviso amarillo de la web (ver [Hora y zona horaria](#hora-y-zona-horaria)). |
@@ -306,6 +307,7 @@ cat /data/sentinel/update.log                         # última actualización d
 
 | Versión | Cambios |
 |---|---|
+| 1.4.3 | Corrige «no se pudo leer el coche (HTTP 412)»: la lista de coches se pide a `/api/1/products`, como TeslaMate. Si falla, el inicio de sesión se conserva y hay un botón **🔎 Buscar mis coches**. Los errores de Tesla muestran su propio mensaje. |
 | 1.4.2 | Inicio de sesión con Tesla desde el móvil: el marcador `sentinel` captura el código antes de que se abra la app de Tesla y vuelve solo al panel. |
 | 1.4.1 | «Iniciar sesión con Tesla» vuelve a funcionar: Tesla retiró la dirección `void/callback`; ahora se usa `tesla://auth/callback` y se copia desde la consola del navegador. |
 | 1.4.0 | Actualizaciones desde el panel web: aviso cuando hay versión nueva en GitHub, botón **Actualizar** y, al terminar, **Reiniciar ahora**. Versión visible en el panel. |

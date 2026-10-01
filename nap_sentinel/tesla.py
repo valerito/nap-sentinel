@@ -108,6 +108,17 @@ def login_finish(callback_url: str, verifier: str, state: str, session=None) -> 
   return j
 
 
+def _tesla_msg(r) -> str:
+  """Tesla's own explanation, e.g. "Endpoint is only available on fleetapi" (never echoes tokens)."""
+  try:
+    j = r.json()
+    msg = j.get("error_description") or j.get("error") or ""
+  except Exception:
+    msg = ""
+  msg = str(msg).strip()
+  return f": {msg[:160]}" if msg else ""
+
+
 class TeslaError(Exception):
   def __init__(self, msg: str, status: int | None = None):
     super().__init__(msg)
@@ -198,18 +209,32 @@ class TeslaClient:
         raise TeslaError("Tesla denegó el acceso (403). Con Owner API puede que tu cuenta ya no la admita: "
                          "prueba con Fleet API.", 403)
       if r.status_code >= 400:
-        raise TeslaError(f"error de la API de Tesla (HTTP {r.status_code})", r.status_code)
+        raise TeslaError(f"error de la API de Tesla (HTTP {r.status_code}){_tesla_msg(r)}", r.status_code)
       return r.json().get("response")
     raise TeslaError("token no válido", 401)
 
   # ── vehicle ──────────────────────────────────────────────
   def vehicles(self) -> list[dict]:
-    res = self.request("GET", "/api/1/vehicles") or []
+    # The Owner API answers /api/1/vehicles with 412 "only available on fleetapi"
+    # since 2024; /api/1/products (what the Tesla app and TeslaMate use) still
+    # works. It also lists Powerwalls/Wall Connectors, which have no VIN.
+    try:
+      res = self.request("GET", "/api/1/products") or []
+    except TeslaError as e:
+      if e.status not in (404, 412):
+        raise
+      res = self.request("GET", "/api/1/vehicles") or []
     return [{"id": str(v.get("id_s") or v.get("id")), "name": v.get("display_name") or v.get("vin", "Tesla"),
-             "vin": v.get("vin", ""), "state": v.get("state", "")} for v in res]
+             "vin": v.get("vin", ""), "state": v.get("state", "")}
+            for v in res if isinstance(v, dict) and v.get("vin") and (v.get("id_s") or v.get("id"))]
 
   def state(self, vid: str) -> str:
-    return (self.request("GET", f"/api/1/vehicles/{vid}") or {}).get("state", "")
+    try:
+      return (self.request("GET", f"/api/1/vehicles/{vid}") or {}).get("state", "")
+    except TeslaError as e:
+      if e.status != 412:
+        raise
+      return next((v["state"] for v in self.vehicles() if v["id"] == str(vid)), "")
 
   def wake(self, vid: str, timeout_s: float = WAKE_TIMEOUT_S) -> float:
     """Returns seconds it took to be online."""
