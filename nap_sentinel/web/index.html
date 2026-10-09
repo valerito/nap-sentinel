@@ -282,6 +282,31 @@
     </div>
   </section>
 
+  <section class="card" id="remote">
+    <h2>Acceso remoto</h2>
+    <div id="rmOff">
+      <p class="muted" style="margin-top:0">Mira el estado, los eventos y los vídeos desde cualquier sitio, a través de la web
+        <a id="rmSite" target="_blank" rel="noopener"></a>. El comma solo se conecta hacia fuera; no abre nada en tu red.</p>
+      <div class="actions"><button class="primary" id="rmPair">🔗 Vincular con la web</button></div>
+      <details style="margin-top:8px"><summary>Servidor</summary>
+        <div class="row"><label>Dirección<small>Cámbiala solo si usas otro servidor</small></label>
+          <input id="rmUrl" style="width:200px" autocomplete="off"></div></details>
+    </div>
+    <div id="rmCode" hidden>
+      <p style="margin-top:0">Entra en <a id="rmSite2" target="_blank" rel="noopener"></a>, crea tu cuenta (o inicia sesión) y pulsa
+        <b>Añadir comma</b> con este código:</p>
+      <p style="font:700 34px/1 ui-monospace,monospace;letter-spacing:6px;margin:8px 0" id="rmCodeTxt"></p>
+      <p class="muted" style="font-size:12px">Caduca en <span id="rmLeft"></span> · <a href="#" id="rmNew">otro código</a></p>
+    </div>
+    <div id="rmOn" hidden>
+      <p style="margin:0">✅ Vinculado a <b id="rmUser"></b> <span class="muted" id="rmSeen"></span></p>
+      <div class="row"><label>Conectado a la web<small>Desactívalo para pausar el acceso remoto sin desvincular</small></label>
+        <label class="switch"><input type="checkbox" id="rmEnabled"><span></span></label></div>
+      <div class="actions"><button class="danger" id="rmUnlink">Desvincular</button></div>
+    </div>
+    <p class="muted" id="rmErr" style="font-size:12px;color:var(--warn);margin-bottom:0"></p>
+  </section>
+
   <section>
     <h2 style="margin-left:4px">Eventos <span id="evCount" class="muted"></span></h2>
     <div id="events" class="events"><div class="empty">Cargando…</div></div>
@@ -715,6 +740,35 @@ $("#tgTest").onclick = async () => { try { await api("/api/telegram/test", {}); 
 $("#recordBtn").onclick = async () => {
   try { await api("/api/record", {}); toast("Grabando clip…"); } catch (e) { toast("No se puede grabar: " + e.message); }
 };
+
+let rm = {};
+function renderRemote(c) {
+  rm = c;
+  const site = c.url.replace(/^https?:\/\//, "");
+  for (const id of ["#rmSite", "#rmSite2"]) { $(id).href = c.url; $(id).textContent = site; }
+  if (document.activeElement !== $("#rmUrl")) $("#rmUrl").value = c.url;
+  const showCode = !c.linked && !!c.code;
+  $("#rmOff").hidden = c.linked || showCode;
+  $("#rmCode").hidden = !showCode;
+  $("#rmOn").hidden = !c.linked;
+  $("#rmCodeTxt").textContent = c.code;
+  $("#rmLeft").textContent = `${Math.ceil(c.code_expires_s / 60)} min`;
+  $("#rmUser").textContent = c.user;
+  $("#rmEnabled").checked = c.enabled;
+  $("#rmSeen").textContent = c.linked && c.last_ok ? `· última conexión ${ago(c.last_ok)}` : "";
+  const up = c.upload ? ` · subiendo vídeo ${Math.round(100 * c.upload.sent / c.upload.total)} %` : "";
+  $("#rmErr").textContent = (c.enabled && c.state === "error" ? "⚠️ " + c.error : "") + up;
+}
+async function refreshRemote() { try { renderRemote(await api("/api/cloud")); } catch (e) {} }
+async function rmPair() {
+  try { renderRemote(await api("/api/cloud/pair", { url: $("#rmUrl").value.trim() })); }
+  catch (e) { toast(e.message); $("#rmErr").textContent = "⚠️ " + e.message; }
+}
+$("#rmPair").onclick = rmPair;
+$("#rmNew").onclick = (e) => { e.preventDefault(); rmPair(); };
+$("#rmUnlink").onclick = async () => { if (confirm("¿Desvincular este comma de la web?")) renderRemote(await api("/api/cloud/unlink", {})); };
+$("#rmEnabled").onchange = async () => renderRemote(await api("/api/cloud/enable", { enabled: $("#rmEnabled").checked }));
+refreshRemote(); setInterval(refreshRemote, 3000);
 
 refreshStatus(); refreshEvents();
 setInterval(refreshStatus, 1000);

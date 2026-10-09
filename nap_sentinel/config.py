@@ -64,13 +64,21 @@ SCHEMA: dict[str, tuple] = {
   "latitude": (40.4168, float, -90.0, 90.0),
   "longitude": (-3.7038, float, -180.0, 180.0),
   "night_sun_elevation": (-4.0, float, -18.0, 5.0),  # sun below this = night
+  # Acceso remoto (server/ in the repo, e.g. https://sentinel.reloadgame.es)
+  "cloud_enabled": (False, bool, None, None),
+  "cloud_url": ("https://sentinel.reloadgame.es", str, None, None),
+  "cloud_device_id": ("", str, None, None),
+  "cloud_device_key": ("", str, None, None),
+  "cloud_user": ("", str, None, None),             # account it's linked to, as reported by the server
+  "cloud_pair_code": ("", str, None, None),
+  "cloud_pair_expires": (0.0, float, None, None),
 }
 
 CHOICES = {"tesla_backend": ("owner", "fleet"), "tesla_flash_when": ("night", "always"),
            "location_source": ("gps", "manual")}
 
 SECRETS = ("web_password", "telegram_token", "telegram_link_code", "tesla_refresh_token", "tesla_access_token",
-           "tesla_login_verifier", "tesla_login_state")
+           "tesla_login_verifier", "tesla_login_state", "cloud_device_key")
 
 
 def config_path() -> Path:

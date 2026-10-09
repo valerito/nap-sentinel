@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>Sentinel · acceso remoto</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --panel2: #1d242e; --line: #2a3340;
+    --text: #e6edf3; --muted: #8b98a8; --accent: #4f9cf9;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --rec: #ff4d4d; --radius: 14px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f5f7fa; --panel: #ffffff; --panel2: #eef1f5; --line: #d9dee5; --text: #1b2430; --muted: #5d6b7c; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 16px 16px 48px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+  h1 { font-size: 20px; margin: 0; } h1 small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+  h2 { font-size: 15px; margin: 0 0 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .auth { max-width: 380px; margin: 40px auto; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  label.f { display: block; margin: 10px 0 4px; color: var(--muted); font-size: 13px; }
+  input[type=email], input[type=password], input[type=text], input[type=number] { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--text); font: inherit; }
+  input[type=number] { width: 110px; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel2); color: var(--text); padding: 8px 14px; border-radius: 10px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.danger { color: var(--bad); } button:disabled { opacity: .5; cursor: default; }
+  .wide { width: 100%; margin-top: 14px; padding: 11px; }
+  .muted { color: var(--muted); } .err { color: var(--bad); min-height: 1.2em; font-size: 13px; margin-top: 8px; }
+  .dev { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+  .dev b { display: block; } .dev .info { flex: 1; min-width: 0; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 25%, transparent); }
+  .state { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .badge { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; font-weight: 700; background: var(--panel2); }
+  .s-armed .dot { background: var(--ok); } .s-arming .dot { background: var(--warn); } .s-recording .dot { background: var(--rec); animation: pulse 1s infinite; }
+  .s-onroad .dot { background: var(--accent); } @keyframes pulse { 50% { opacity: .3; } }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-top: 14px; }
+  .stat { background: var(--panel2); border-radius: 10px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; } .stat span { color: var(--muted); font-size: 12px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; } .row > label:first-child { flex: 1; } .row small { display: block; color: var(--muted); font-size: 12px; }
+  input[type=range] { width: 160px; accent-color: var(--accent); }
+  .switch { position: relative; width: 48px; height: 28px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: .2s; cursor: pointer; }
+  .switch span::before { content: ""; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+  .switch input:checked + span { background: var(--ok); } .switch input:checked + span::before { transform: translateX(20px); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .warnbox { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px;
+    background: color-mix(in srgb, var(--warn) 18%, transparent); border: 1px solid var(--warn); border-radius: 10px; padding: 10px 12px; }
+  .warnbox.info { background: color-mix(in srgb, var(--accent) 16%, transparent); border-color: var(--accent); }
+  .events { display: grid; gap: 12px; }
+  .ev { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .ev-head { display: flex; gap: 12px; padding: 12px; cursor: pointer; align-items: center; }
+  .ev-thumb { width: 112px; height: 70px; border-radius: 8px; background: var(--panel2) center/cover no-repeat; flex: none; }
+  .ev-info { flex: 1; min-width: 0; } .ev-info b { display: block; } .ev-info span { color: var(--muted); font-size: 13px; }
+  .tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--panel2); margin-right: 4px; }
+  .tag.impact { color: var(--bad); } .tag.tilt, .tag.rotate { color: var(--warn); } .tag.manual { color: var(--accent); }
+  .ev-body { padding: 0 12px 12px; }
+  video { width: 100%; border-radius: 10px; background: #000; max-height: 60vh; margin-top: 8px; }
+  .bar { height: 8px; background: var(--panel2); border-radius: 4px; overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+  .empty { text-align: center; color: var(--muted); padding: 32px 12px; }
+  a { color: var(--accent); }
+  .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line);
+    padding: 10px 16px; border-radius: 10px; opacity: 0; transition: opacity .3s; pointer-events: none; max-width: 90vw; }
+  .toast.show { opacity: 1; }
+  .steps { padding-left: 20px; margin: 6px 0 0; } .steps li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🛡️ Sentinel <small>acceso remoto</small></h1>
+    <span id="acct" hidden><span class="muted" id="who"></span> <button id="logout">Salir</button></span>
+  </header>
+
+  <!-- login / registro -->
+  <section id="vAuth" class="card auth" hidden>
+    <div class="tabs"><button id="tLogin" class="on">Entrar</button><button id="tReg">Crear cuenta</button></div>
+    <form id="fAuth">
+      <label class="f">Email</label><input type="email" id="email" autocomplete="email" required>
+      <label class="f">Contraseña</label><input type="password" id="pass" autocomplete="current-password" required minlength="8">
+      <button class="primary wide" id="authBtn">Entrar</button>
+      <div class="err" id="authErr"></div>
+    </form>
+    <p class="muted" style="font-size:12px;margin-bottom:0">Esta web solo hace de intermediaria con tu comma: los vídeos que pidas se guardan aquí 24 h como máximo.</p>
+  </section>
+
+  <!-- lista de commas -->
+  <section id="vList" hidden>
+    <div id="devs"></div>
+    <div class="card">
+      <h2>Añadir comma</h2>
+      <ol class="steps muted">
+        <li>En el panel del comma (<code>http://IP-del-comma:8090</code>), sección <b>Acceso remoto</b>, pulsa <b>Vincular con la web</b>.</li>
+        <li>Escribe aquí el código de 6 letras que aparece.</li>
+      </ol>
+      <form id="fLink" style="margin-top:10px">
+        <label class="f">Código</label><input type="text" id="code" maxlength="8" autocomplete="off" style="text-transform:uppercase;letter-spacing:4px;font-weight:700">
+        <label class="f">Nombre (opcional)</label><input type="text" id="devName" maxlength="80" placeholder="Model S">
+        <button class="primary wide">Añadir comma</button>
+        <div class="err" id="linkErr"></div>
+      </form>
+    </div>
+    <details class="card"><summary class="muted" style="cursor:pointer">Cambiar contraseña</summary>
+      <form id="fPw"><label class="f">Actual</label><input type="password" id="pwOld" autocomplete="current-password">
+        <label class="f">Nueva</label><input type="password" id="pwNew" autocomplete="new-password" minlength="8">
+        <button class="wide">Cambiar</button><div class="err" id="pwErr"></div></form>
+    </details>
+  </section>
+
+  <!-- un comma -->
+  <section id="vDev" hidden>
+    <div class="actions" style="margin:0 0 12px"><button id="back">← Mis commas</button></div>
+    <div id="offline" class="warnbox" hidden></div>
+    <div id="updBox" class="warnbox info" hidden><span id="updText"></span><span class="actions" style="margin:0">
+      <button class="primary" id="updBtn">Actualizar</button><button class="primary" id="rebootBtn" hidden>Reiniciar ahora</button></span></div>
+    <section class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px">
+        <b id="dName" style="font-size:18px"></b><span class="muted" id="dSeen" style="font-size:12px"></span></div>
+      <div class="state"><div id="badge" class="badge"><span class="dot"></span><span id="stateText">–</span></div>
+        <span id="stateHint" class="muted"></span></div>
+      <div class="grid">
+        <div class="stat"><b id="volt">–</b><span>Batería 12 V</span></div>
+        <div class="stat"><b id="power">–</b><span>Consumo comma</span></div>
+        <div class="stat"><b id="temp">–</b><span>Temperatura</span></div>
+        <div class="stat"><b id="space">–</b><span>Espacio libre</span></div>
+      </div>
+      <div class="muted" style="font-size:12px;margin-top:8px" id="lastTrig"></div>
+      <div class="actions">
+        <button class="primary" id="recBtn">● Grabar ahora</button>
+        <button id="flashBtn" hidden>💡 Destello</button>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Ajustes</h2>
+      <div class="row"><label>Sentinel activado<small>Vigila el coche cuando está apagado</small></label>
+        <label class="switch"><input type="checkbox" data-k="enabled"><span></span></label></div>
+      <div class="row"><label>Sensibilidad <b id="sensVal"></b><small>1 = solo golpes fuertes · 5 = cualquier roce</small></label>
+        <input type="range" min="1" max="5" step="1" data-k="sensitivity"></div>
+      <div class="row"><label>Pre-grabación<small>Guarda los segundos anteriores al golpe (≈ +2 W)</small></label>
+        <label class="switch"><input type="checkbox" data-k="prerecord"><span></span></label></div>
+      <div class="row"><label>Grabar habitáculo</label><label class="switch"><input type="checkbox" data-k="record_cabin"><span></span></label></div>
+      <div class="row"><label>Descartar si arrancas el coche</label><label class="switch"><input type="checkbox" data-k="discard_on_drive"><span></span></label></div>
+      <div class="row" id="tgRow"><label>Avisos por Telegram</label><label class="switch"><input type="checkbox" data-k="telegram_alerts"><span></span></label></div>
+      <div class="row" id="flRow"><label>Destello en eventos (Tesla)</label><label class="switch"><input type="checkbox" data-k="tesla_flash"><span></span></label></div>
+      <p class="muted" style="font-size:12px;margin-bottom:0">El resto de ajustes, Telegram y la conexión con Tesla se configuran en el panel del comma.</p>
+      <details style="margin-top:10px"><summary class="muted" style="cursor:pointer">Este comma en la web</summary>
+        <div class="actions"><button id="renameBtn">Cambiar nombre</button><button class="danger" id="unlinkBtn">Quitar de mi cuenta</button></div>
+      </details>
+    </section>
+    <h2 style="margin-left:4px">Eventos <span id="evCount" class="muted"></span></h2>
+    <div id="events" class="events"></div>
+  </section>
+</main>
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const REASON = { impact: "Golpe", tilt: "Inclinación", rotate: "Balanceo", manual: "Manual" };
+const STATE = { off: ["Desactivado", ""], arming: ["Armando", "s-arming"], armed: ["Vigilando", "s-armed"], recording: ["Grabando", "s-recording"] };
+const CAMS = [["road.mp4", "Frontal"], ["wide_lq.mp4", "Gran angular (ligera)"], ["dcamera.mp4", "Habitáculo"], ["ecamera.mp4", "Gran angular"], ["fcamera.mp4", "Frontal HD"]];
+let csrf = "", me = null, dev = null, st = null, timer = null, openEv = null, lastSig = "", busyCfg = 0;
+
+function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 3000); }
+async function api(action, body, params = "") {
+  const opt = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF": csrf }, body: JSON.stringify(body) };
+  const r = await fetch(`api.php?a=${action}${params}`, { credentials: "same-origin", ...opt });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401 && action !== "login") { show("auth"); throw new Error(j.error || "Inicia sesión"); }
+  if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+  return j;
+}
+const fmtBytes = (b) => b > 1e9 ? (b / 1e9).toFixed(1) + " GB" : (b / 1e6).toFixed(1) + " MB";
+const fmtDate = (t) => new Date(t * 1000).toLocaleString("es-ES", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+const ago = (s) => s < 90 ? "hace un momento" : s < 5400 ? `hace ${Math.round(s / 60)} min` : s < 129600 ? `hace ${Math.round(s / 3600)} h` : `hace ${Math.round(s / 86400)} días`;
+
+function show(v) {
+  for (const x of ["auth", "list", "dev"]) $("#v" + x[0].toUpperCase() + x.slice(1)).hidden = x !== v;
+  $("#acct").hidden = v === "auth";
+  clearInterval(timer); timer = null;
+  if (v === "list") { loadDevices(); timer = setInterval(loadDevices, 15000); }
+  if (v === "dev") { loadState(); timer = setInterval(loadState, 3000); }
+}
+
+// ── cuenta ──────────────────────────────────────────────
+let regMode = false;
+$("#tLogin").onclick = () => { regMode = false; $("#tLogin").classList.add("on"); $("#tReg").classList.remove("on"); $("#authBtn").textContent = "Entrar"; $("#pass").autocomplete = "current-password"; };
+$("#tReg").onclick = () => { regMode = true; $("#tReg").classList.add("on"); $("#tLogin").classList.remove("on"); $("#authBtn").textContent = "Crear cuenta"; $("#pass").autocomplete = "new-password"; };
+$("#fAuth").onsubmit = async (e) => {
+  e.preventDefault(); $("#authErr").textContent = "";
+  try { const r = await api(regMode ? "register" : "login", { email: $("#email").value, password: $("#pass").value }); await boot(); }
+  catch (err) { $("#authErr").textContent = err.message; }
+};
+$("#logout").onclick = async () => { await api("logout", {}).catch(() => {}); location.hash = ""; boot(); };
+$("#fPw").onsubmit = async (e) => {
+  e.preventDefault(); $("#pwErr").textContent = "";
+  try { await api("password", { old: $("#pwOld").value, new: $("#pwNew").value }); $("#pwOld").value = $("#pwNew").value = ""; toast("Contraseña cambiada"); }
+  catch (err) { $("#pwErr").textContent = err.message; }
+};
+
+// ── commas ─────────────────────────────────────────────
+async function loadDevices() {
+  const list = await api("devices").catch(() => null); if (!list) return;
+  $("#devs").innerHTML = list.length ? "" : '<div class="card empty">Todavía no has añadido ningún comma.</div>';
+  for (const d of list) {
+    const el = document.createElement("div"); el.className = "card dev";
+    const [txt] = d.onroad ? ["Conduciendo"] : (STATE[d.state] || ["—"]);
+    el.innerHTML = `<span class="dot ${d.online ? "on" : ""}"></span><div class="info"><b>${esc(d.name)}</b>
+      <span class="muted" style="font-size:13px">${d.online ? "Conectado" : d.last_seen ? "Visto " + ago(Date.now() / 1000 - d.last_seen) : "Nunca conectado"}
+      · ${esc(txt)}${d.voltage ? " · " + d.voltage.toFixed(1) + " V" : ""}</span></div><span class="muted">›</span>`;
+    el.onclick = () => { location.hash = "#c=" + d.id; };
+    $("#devs").appendChild(el);
+  }
+}
+$("#fLink").onsubmit = async (e) => {
+  e.preventDefault(); $("#linkErr").textContent = "";
+  try { const r = await api("link", { code: $("#code").value, name: $("#devName").value }); $("#code").value = $("#devName").value = ""; location.hash = "#c=" + r.id; }
+  catch (err) { $("#linkErr").textContent = err.message; }
+};
+
+// ── órdenes al comma ───────────────────────────────────
+async function cmd(method, path, body, { wait = 90, quiet = false } = {}) {
+  const r = await api("cmd", { device: dev, method, path, body });
+  if (!r.online && !quiet) toast("El comma no está conectado: la orden se hará en cuanto vuelva (máx. 10 min).");
+  if (!wait) return r;
+  const t0 = Date.now();
+  while (Date.now() - t0 < wait * 1000) {
+    await new Promise((ok) => setTimeout(ok, 1000));
+    const s = await api("cmd_result", undefined, "&id=" + r.id);
+    if (s.state === "done") return s.result;
+    if (s.state === "error") throw new Error((s.result && s.result.error) || "error en el comma");
+  }
+  throw new Error("El comma no ha respondido todavía.");
+}
+
+// ── vista de un comma ──────────────────────────────────
+async function loadState() {
+  if (!dev) return;
+  let s;
+  try { s = await api("state", undefined, "&device=" + encodeURIComponent(dev)); } catch (e) { return; }
+  st = s; render(s);
+}
+function render(s) {
+  const status = s.status || {}, c = s.config || {}, ex = s.extra || {};
+  $("#dName").textContent = s.name;
+  const age = s.server_time - s.last_seen;
+  $("#dSeen").textContent = s.last_seen ? (s.online ? "conectado" : "visto " + ago(age)) + (s.version ? " · v" + s.version : "") : "";
+  $("#offline").hidden = s.online && s.poll_s <= 5;
+  if (s.online && s.poll_s > 5) { $("#offline").className = "warnbox info"; $("#offline").textContent = "⏳ Conectando con el comma… (hasta 30 s la primera vez)"; return renderRest(s); }
+  $("#offline").className = "warnbox";
+  $("#offline").textContent = s.last_seen
+    ? `⚠️ El comma no está conectado (última vez ${ago(age)}). Lo que ves es de entonces; las órdenes esperan hasta 10 min.`
+    : "⏳ Esperando la primera conexión del comma… (tarda hasta un minuto)";
+  renderRest(s);
+}
+function renderRest(s) {
+  const status = s.status || {}, c = s.config || {}, ex = s.extra || {};
+  const [txt, cls] = status.onroad ? ["Conduciendo", "s-onroad"] : (STATE[status.state] || ["—", ""]);
+  $("#badge").className = "badge " + cls; $("#stateText").textContent = txt;
+  let hint = "";
+  if (status.state === "arming") hint = `se arma en ${status.arming_left_s}s`;
+  else if (status.state === "recording") hint = `${status.recording_left_s}s restantes`;
+  else if (status.state === "armed" && c.prerecord) hint = status.cameras_on ? `pre-grabando · ${status.prerecord_buffer_s || 0}s` : "pre-grabación en pausa";
+  $("#stateHint").textContent = hint;
+  $("#volt").textContent = status.voltage ? status.voltage.toFixed(2) + " V" : "–";
+  $("#power").textContent = status.power_draw_w != null ? status.power_draw_w.toFixed(1) + " W" : "–";
+  $("#temp").textContent = status.max_temp_c ? Math.round(status.max_temp_c) + " °C" : "–";
+  $("#space").textContent = status.free_space_pct != null ? Math.round(status.free_space_pct) + " %" : "–";
+  const lt = status.last_trigger;
+  $("#lastTrig").textContent = lt ? `Último disparo: ${REASON[lt.reason] || lt.reason} · ${fmtDate(lt.wall_time)}` : "";
+  $("#recBtn").disabled = !c.enabled || status.onroad;
+  $("#flashBtn").hidden = !c.tesla_connected;
+  $("#tgRow").hidden = !c.telegram_linked; $("#flRow").hidden = !c.tesla_connected;
+  if (Date.now() > busyCfg) document.querySelectorAll("[data-k]").forEach((el) => {
+    if (document.activeElement === el) return;
+    const v = c[el.dataset.k];
+    if (el.type === "checkbox") el.checked = !!v; else el.value = v ?? "";
+  });
+  $("#sensVal").textContent = c.sensitivity ?? "";
+  const u = ex.update || {};
+  let ut = "";
+  if (u.state === "running") ut = `⏳ Actualizando a ${esc(u.target)}…`;
+  else if (u.needs_reboot) ut = `✅ Actualizado a <b>${esc(u.installed_version)}</b>. Reinicia el comma para aplicarlo.`;
+  else if (u.state === "failed") ut = `❌ La actualización falló: ${esc(u.error)}`;
+  else if (u.available) ut = `🆕 Nueva versión de Sentinel <b>${esc(u.latest)}</b> disponible (tiene ${esc(u.installed_version)})`;
+  $("#updBox").hidden = !ut; $("#updText").innerHTML = ut;
+  $("#updBtn").hidden = !(u.available || u.state === "failed") || u.state === "running" || u.needs_reboot;
+  $("#rebootBtn").hidden = !u.needs_reboot;
+  renderEvents(s.events || [], s.cached || {});
+}
+
+document.querySelectorAll("[data-k]").forEach((el) => el.addEventListener("change", async () => {
+  const k = el.dataset.k, v = el.type === "checkbox" ? el.checked : Number(el.value);
+  busyCfg = Date.now() + 15000;
+  try { await cmd("POST", "/api/config", { [k]: v }); toast("Guardado en el comma"); }
+  catch (e) { toast("No se pudo: " + e.message); }
+  finally { busyCfg = 0; loadState(); }
+}));
+$("#recBtn").onclick = async () => { const b = $("#recBtn"); b.disabled = true; try { await cmd("POST", "/api/record", {}); toast("Grabando clip…"); } catch (e) { toast("No se puede grabar: " + e.message); } finally { b.disabled = false; } };
+$("#flashBtn").onclick = async () => { const b = $("#flashBtn"); b.disabled = true; b.textContent = "Enviando…";
+  try { const r = await cmd("POST", "/api/tesla/flash", {}, { wait: 120 }); toast(`💡 Destello enviado (${r.seconds} s)`); }
+  catch (e) { toast("No se pudo: " + e.message); } finally { b.disabled = false; b.textContent = "💡 Destello"; } };
+$("#updBtn").onclick = async () => { if (!confirm("¿Actualizar Sentinel en el comma?")) return;
+  try { await cmd("POST", "/api/update/run", {}); toast("Actualizando…"); } catch (e) { toast(e.message); } };
+$("#rebootBtn").onclick = async () => { if (!confirm("¿Reiniciar el comma ahora? Durante uno o dos minutos no vigila.")) return;
+  try { await cmd("POST", "/api/reboot", {}); toast("Reiniciando el comma…"); } catch (e) { toast(e.message); } };
+$("#renameBtn").onclick = async () => { const n = prompt("Nombre del comma", st ? st.name : ""); if (n === null) return;
+  await api("rename", { device: dev, name: n }); loadState(); };
+$("#unlinkBtn").onclick = async () => { if (!confirm("¿Quitar este comma de tu cuenta? Para volver a añadirlo necesitarás un código nuevo.")) return;
+  await api("unlink", { device: dev }); location.hash = ""; };
+$("#back").onclick = () => { location.hash = ""; };
+
+function renderEvents(list, cached) {
+  const sig = JSON.stringify([list.map((e) => [e.id, e.status, e.locked, Object.keys(e.files || {}).length]), openEv]);
+  $("#evCount").textContent = list.length ? `(${list.length})` : "";
+  if (sig !== lastSig) {
+    lastSig = sig;
+    const box = $("#events");
+    box.innerHTML = list.length ? "" : '<div class="empty">Sin eventos.</div>';
+    for (const e of list) {
+      const el = document.createElement("div"); el.className = "ev"; el.dataset.id = e.id;
+      const reasons = [...new Set((e.triggers || []).map((t) => t.reason))];
+      el.innerHTML = `<div class="ev-head"><div class="ev-thumb"></div>
+        <div class="ev-info"><b>${fmtDate(e.wall_time)} ${e.locked ? "🔒" : ""}</b>
+        <span>${reasons.map((r) => `<span class="tag ${esc(r)}">${esc(REASON[r] || r)}</span>`).join("")}
+        ${e.peak ? `pico ${e.peak.toFixed(2)} g · ` : ""}${e.duration_s ? Math.round(e.duration_s) + " s · " : ""}${fmtBytes(e.size_bytes || 0)}
+        ${e.status !== "ready" ? "<em>procesando…</em>" : ""}</span></div></div><div class="ev-body" hidden></div>`;
+      el.querySelector(".ev-head").onclick = () => { openEv = openEv === e.id ? null : e.id; lastSig = ""; renderEvents(list, cached); };
+      box.appendChild(el);
+      if (openEv === e.id) fillEvent(el, e, cached[e.id] || {});
+    }
+  } else if (openEv) {
+    const el = document.querySelector(`.ev[data-id="${openEv}"]`), e = list.find((x) => x.id === openEv);
+    if (el && e) updateProgress(el, cached[e.id] || {});
+  }
+  // thumbnails arrive a few at a time: fill them in without redrawing (a playing video keeps playing)
+  document.querySelectorAll(".ev").forEach((el) => {
+    const t = (cached[el.dataset.id] || {})["thumb.jpg"], box = el.querySelector(".ev-thumb");
+    if (t && t.received === t.total && !box.style.backgroundImage)
+      box.style.backgroundImage = `url('api.php?a=media&device=${dev}&eid=${el.dataset.id}&name=thumb.jpg')`;
+  });
+}
+
+let picked = {}, requested = {};
+function fillEvent(el, e, cache) {
+  const body = el.querySelector(".ev-body"); body.hidden = false;
+  const files = e.files || {};
+  const cams = CAMS.filter(([f]) => files[f]);
+  if (!picked[e.id] || !files[picked[e.id]]) picked[e.id] = (cams.find(([f]) => f === "road.mp4") || cams[0] || [""])[0];
+  const f = picked[e.id];
+  body.innerHTML = `<div class="tabs">${cams.map(([n, label]) => `<button data-f="${n}" class="${n === f ? "on" : ""}">${label} · ${fmtBytes(files[n])}</button>`).join("")}</div>
+    <div data-player></div>
+    <div class="actions"><button data-lock>${e.locked ? "Desbloquear" : "🔒 Bloquear"}</button><button data-del class="danger">Borrar del comma</button></div>`;
+  body.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => { picked[e.id] = b.dataset.f; fillEvent(el, e, (st.cached || {})[e.id] || {}); });
+  body.querySelector("[data-lock]").onclick = async () => { try { await cmd("POST", `/api/events/${e.id}/lock`, { locked: !e.locked }); loadState(); } catch (err) { toast(err.message); } };
+  body.querySelector("[data-del]").onclick = async () => { if (!confirm("¿Borrar este evento del comma?")) return;
+    try { await cmd("POST", `/api/events/${e.id}/delete`, {}); openEv = null; loadState(); } catch (err) { toast(err.message); } };
+  updateProgress(el, cache, true);
+}
+function updateProgress(el, cache, force) {
+  const id = el.dataset.id, f = picked[id], p = el.querySelector("[data-player]");
+  if (!p || !f) { if (p) p.innerHTML = '<p class="muted">Este evento no tiene vídeo todavía.</p>'; return; }
+  const c = cache[f];
+  const done = c && c.received === c.total;
+  const asked = !c && Date.now() - (requested[id + f] || 0) < 90000;
+  const key = done ? "done" : c ? "up" : asked ? "asked" : "none";
+  if (!force && p.dataset.k === key + f && key !== "up") return;
+  p.dataset.k = key + f;
+  if (done) {
+    const src = `api.php?a=media&device=${dev}&eid=${id}&name=${f}`;
+    p.innerHTML = `<video controls playsinline preload="metadata" src="${src}"></video>
+      <div class="actions"><a href="${src}&download=1"><button>⬇ Descargar</button></a></div>
+      ${f !== "road.mp4" && f !== "wide_lq.mp4" ? '<p class="muted" style="font-size:12px">HEVC: se ve en Safari/iOS y en Chrome/Edge con aceleración por hardware.</p>' : ""}`;
+  } else if (c) {
+    const pct = Math.round(100 * c.received / c.total);
+    p.innerHTML = `<p class="muted" style="margin:6px 0 0">Subiendo desde el comma… ${pct} % (${fmtBytes(c.received)} de ${fmtBytes(c.total)})</p><div class="bar"><i style="width:${pct}%"></i></div>`;
+  } else if (asked) {
+    p.innerHTML = '<p class="muted" style="margin:6px 0 0">⏳ Pidiendo el vídeo al comma…</p><div class="bar"><i style="width:2%"></i></div>';
+  } else {
+    p.innerHTML = `<div class="actions"><button class="primary" data-load>▶ Traer vídeo del comma</button></div>
+      <p class="muted" style="font-size:12px">El comma lo sube a esta web (usa sus datos) y se borra de aquí en 24 h.</p>`;
+    p.querySelector("[data-load]").onclick = async (ev) => {
+      ev.target.disabled = true;
+      try { await cmd("UPLOAD", `/media/${id}/${f}`, null, { wait: 0 }); requested[id + f] = Date.now(); updateProgress(el, cache, true); }
+      catch (err) { toast(err.message); ev.target.disabled = false; }
+    };
+  }
+}
+
+// ── arranque ───────────────────────────────────────────
+async function route() {
+  const m = location.hash.match(/^#c=([0-9a-f]+)$/);
+  if (!me) return show("auth");
+  if (m) { dev = m[1]; openEv = null; lastSig = ""; show("dev"); } else { dev = null; show("list"); }
+}
+async function boot() {
+  const r = await api("me");
+  csrf = r.csrf; me = r.user;
+  $("#who").textContent = me || "";
+  if (!r.allow_register) $("#tReg").hidden = true;
+  route();
+}
+window.addEventListener("hashchange", route);
+boot();
+</script>
+</body>
+</html>

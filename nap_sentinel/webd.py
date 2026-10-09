@@ -18,7 +18,7 @@ from pathlib import Path
 
 from aiohttp import web
 
-from nap_sentinel import config, storage, telegram, tesla, updater
+from nap_sentinel import cloud, config, storage, telegram, tesla, updater
 
 PORT = int(os.environ.get("SENTINEL_WEB_PORT", "8090"))
 WEB_DIR = Path(__file__).parent / "web"
@@ -65,7 +65,7 @@ def make_app() -> web.Application:
       data = await request.json()
       # Telegram identity is only changed through /api/telegram/*
       data = {k: v for k, v in data.items()
-              if not k.startswith(("telegram_", "tesla_")) or k in TG_USER_KEYS}
+              if not k.startswith(("telegram_", "tesla_", "cloud_")) or k in TG_USER_KEYS}
       data.pop("web_password", None)
       if "password" in data:
         data["web_password"] = str(data.pop("password") or "")
@@ -287,6 +287,43 @@ def make_app() -> web.Application:
     config.TRIGGER_FILE.touch()
     return web.json_response({"ok": True})
 
+  # ── acceso remoto ───────────────────────────────────────
+  def _cloud_public() -> dict:
+    cfg = config.load()
+    st = cloud.state()
+    left = cfg["cloud_pair_expires"] - time.time()  # noqa: TID251
+    return {"enabled": cfg["cloud_enabled"], "url": cfg["cloud_url"], "registered": bool(cfg["cloud_device_id"]),
+            "linked": bool(cfg["cloud_user"]), "user": cfg["cloud_user"],
+            "code": cfg["cloud_pair_code"] if left > 0 and not cfg["cloud_user"] else "", "code_expires_s": max(0, int(left)),
+            "state": st.get("state", "off") if cfg["cloud_enabled"] else "off", "error": st.get("error", ""),
+            "last_ok": st.get("last_ok"), "upload": st.get("upload")}
+
+  async def cloud_get(request):
+    return web.json_response(_cloud_public())
+
+  async def cloud_pair(request):
+    d = await _body(request)
+    url = str(d.get("url") or "").strip().rstrip("/")
+    if url:
+      if not url.startswith(("https://", "http://")):
+        url = "https://" + url
+      cfg = config.load()
+      if url != cfg["cloud_url"]:   # another server: start over there
+        config.update({"cloud_url": url, "cloud_device_id": "", "cloud_device_key": "", "cloud_user": ""})
+    try:
+      await asyncio.get_running_loop().run_in_executor(None, cloud.pair, updater.RUNNING_VERSION)
+    except cloud.CloudError as e:
+      return web.json_response({"error": str(e), **_cloud_public()}, status=502)
+    return web.json_response(_cloud_public())
+
+  async def cloud_unlink(request):
+    await asyncio.get_running_loop().run_in_executor(None, cloud.unlink)
+    return web.json_response(_cloud_public())
+
+  async def cloud_enable(request):
+    config.update({"cloud_enabled": bool((await _body(request)).get("enabled"))})
+    return web.json_response(_cloud_public())
+
   # ── updates from GitHub ─────────────────────────────────
   async def update_status(request):
     return web.json_response(updater.status())
@@ -365,6 +402,10 @@ def make_app() -> web.Application:
     web.post("/api/update/check", update_check),
     web.post("/api/update/run", update_run),
     web.post("/api/reboot", reboot),
+    web.get("/api/cloud", cloud_get),
+    web.post("/api/cloud/pair", cloud_pair),
+    web.post("/api/cloud/unlink", cloud_unlink),
+    web.post("/api/cloud/enable", cloud_enable),
     web.get("/media/{eid}/{name}", media),
   ])
   if os.environ.get("SENTINEL_UPDATE_CHECK", "1") != "0":
@@ -373,6 +414,7 @@ def make_app() -> web.Application:
 
 
 def main() -> None:
+  cloud.start(f"http://127.0.0.1:{PORT}", updater.RUNNING_VERSION)
   web.run_app(make_app(), host="0.0.0.0", port=PORT, print=None, access_log=None)
 
 

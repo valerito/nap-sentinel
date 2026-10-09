@@ -11,6 +11,7 @@ Si alguien golpea, levanta o balancea el coche, sentinel graba las cámaras (fro
 - **Telegram**: aviso con el motivo y la fuerza, vídeo de la gran angular y comandos como `/grabar` o `/estado`.
 - **Destello de luces con la API de Tesla** al detectar un evento de noche, para que la grabación se vea mejor.
 - **Si eras tú**, no hay aviso: al arrancar el coche durante la grabación, el evento se descarta.
+- **Acceso remoto** desde cualquier sitio a través de una web intermediaria (`sentinel.reloadgame.es`): estado, ajustes, eventos y vídeos.
 - **Se actualiza desde el panel**: avisa cuando hay versión nueva en GitHub y la instala con un botón.
 - **Sobrevive a las actualizaciones de NAP.** Mientras conduces no cambia nada.
 
@@ -24,6 +25,7 @@ Si alguien golpea, levanta o balancea el coche, sentinel graba las cámaras (fro
 - [Avisos por Telegram](#avisos-por-telegram)
 - [Destello de luces (API de Tesla)](#destello-de-luces-api-de-tesla)
 - [Panel web](#panel-web)
+- [Acceso remoto](#acceso-remoto)
 - [Qué detecta](#qué-detecta)
 - [Ajustes](#ajustes)
 - [Energía](#energía)
@@ -197,7 +199,47 @@ Se hace desde el **móvil** (o el ordenador), aunque tengas la app de Tesla inst
 
 Los vídeos HD y de habitáculo son HEVC: se ven en Safari/iOS y en Chrome/Edge con aceleración por hardware. La frontal y la gran angular ligeras (H.264) se ven en cualquier navegador.
 
-## Qué detecta
+## Acceso remoto
+
+Para ver el comma fuera de casa sin VPN. Una web intermediaria hace de buzón: el comma **solo se conecta hacia fuera** (no abre nada en tu red) y consulta la web cada 30 s, o cada 2 s mientras alguien la tiene abierta.
+
+**Vincular** (una vez):
+1. Crea tu cuenta en <https://sentinel.reloadgame.es>.
+2. En el panel del comma, sección **Acceso remoto**, pulsa **🔗 Vincular con la web**. Aparece un código de 6 letras (vale 15 min).
+3. En la web, **Añadir comma** con ese código.
+
+**Desde la web puedes**:
+- ver el estado (vigilando, batería, consumo…);
+- cambiar los ajustes principales;
+- grabar ahora y lanzar el destello de prueba;
+- actualizar y reiniciar Sentinel;
+- ver los eventos con su miniatura, bloquearlos o borrarlos;
+- **traer un vídeo**: el comma lo sube a la web solo cuando lo pides, con barra de progreso, y la web lo borra a las 24 h.
+
+**Qué no se puede desde la web**: la contraseña del panel, el bot de Telegram y la conexión con Tesla. Esos datos nunca salen del comma; la web solo ve lo mismo que el panel local publica.
+
+**Datos móviles**:
+- Sin la web abierta: unos pocos MB al día.
+- Con la web abierta: algo más, mientras la miras.
+- Vídeos: lo que pesen. La frontal ligera ocupa unos 2–3 MB por minuto; la HD y la del habitáculo bastante más. Cada pestaña de cámara muestra su tamaño antes de pedirla.
+
+Si el comma está apagado o sin conexión, la web enseña lo último que recibió. Las órdenes esperan como mucho 10 minutos y después caducan, para que un reinicio no ocurra horas más tarde.
+
+### Montar tu propia web intermediaria
+
+La carpeta `server/` funciona en un **hosting compartido normal** (PHP 7.4+ con SQLite o MySQL): no necesita procesos permanentes, Docker ni VPN.
+
+1. Sube el contenido de `server/` a la carpeta del subdominio (p. ej. `sentinel.reloadgame.es`) por FTP o el gestor de archivos. Activa HTTPS (Let's Encrypt) en el hosting.
+2. Abre la web: la primera visita crea sola la base de datos SQLite en una carpeta `data-XXXX` con nombre aleatorio, protegida además con `.htaccess`.
+3. Opcional: copia `config.sample.php` como `config.php` para usar el MySQL del hosting, cerrar el registro (`allow_register => false`) o cambiar cuánto se guardan los vídeos.
+4. En el panel del comma, *Acceso remoto → Servidor*, pon tu dirección si no es la de por defecto.
+
+Límites que conviene saber:
+- Los vídeos se suben en trozos de 1 MB, así que valen los límites típicos de subida de un hosting.
+- Por defecto se permiten 600 MB de caché por comma.
+- Si el registro está abierto, guardas datos (vídeos) de otras personas: añade un aviso de privacidad o cierra el registro.
+
+
 
 - **Golpe:** aceleración filtrada paso alto. El umbral depende de la sensibilidad: 1 = 0,30 g · 2 = 0,18 g · 3 = 0,10 g · 4 = 0,06 g · 5 = 0,035 g.
 - **Inclinación:** cambio lento del vector de gravedad (gato, grúa). 1,5° por defecto.
@@ -257,7 +299,7 @@ La **zona horaria** se elige en *Avanzado → Zona horaria* (por defecto `Europe
 
 | Dónde | Qué |
 |---|---|
-| `/data/sentinel/` | El programa, tu `config.json`, el registro de Telegram y el de la última actualización (`update.log`). Está fuera de openpilot, así que no le afectan las actualizaciones de NAP. |
+| `/data/sentinel/` | El programa, tu `config.json` (incluida la clave del acceso remoto), el registro de Telegram y el de la última actualización (`update.log`). Está fuera de openpilot, así que no le afectan las actualizaciones de NAP. |
 | `/data/openpilot/system/manager/process_config.py` | 12 líneas al final (el "gancho"), dentro de `try/except`: si sentinel falla o no está, openpilot arranca igual que siempre. |
 | `/data/continue.sh` | 1 línea que vuelve a poner el gancho en cada arranque. |
 | Param `DisablePowerDown` | Activado mientras sentinel está activado. Se restaura al desactivarlo o al desinstalar. |
@@ -307,6 +349,7 @@ cat /data/sentinel/update.log                         # última actualización d
 
 | Versión | Cambios |
 |---|---|
+| 1.5.0 | **Acceso remoto**: web intermediaria en PHP (`server/`, en `sentinel.reloadgame.es`) con cuentas de usuario; el comma se vincula con un código y desde la web se ve el estado, se cambian ajustes, se lanzan órdenes y se traen vídeos bajo demanda. |
 | 1.4.3 | Corrige «no se pudo leer el coche (HTTP 412)»: la lista de coches se pide a `/api/1/products`, como TeslaMate. Si falla, el inicio de sesión se conserva y hay un botón **🔎 Buscar mis coches**. Los errores de Tesla muestran su propio mensaje. |
 | 1.4.2 | Inicio de sesión con Tesla desde el móvil: el marcador `sentinel` captura el código antes de que se abra la app de Tesla y vuelve solo al panel. |
 | 1.4.1 | «Iniciar sesión con Tesla» vuelve a funcionar: Tesla retiró la dirección `void/callback`; ahora se usa `tesla://auth/callback` y se copia desde la consola del navegador. |
@@ -344,4 +387,5 @@ Archivos:
 - `config.py` y `storage.py`: ajustes, estado compartido y eventos.
 - `timesync.py`: corrección de la hora del comma y zona horaria.
 - `tesla.py`: API de Tesla (Owner/Fleet, token rotativo, despertar, destello) y cálculo de día/noche.
+- `cloud.py` y `server/` (`api.php`, `index.html`): acceso remoto (cliente del comma y web intermediaria).
 - `updater.py`: comprobación de versión en GitHub, actualización con el instalador y reinicio.
